@@ -26,22 +26,34 @@ cp Info.plist "$app/Contents/"
 # ponytail: placeholder .icns; replace with an Icon Composer icon once Xcode is installed
 cp Resources/AppIcon.icns "$app/Contents/Resources/"
 
+# Release disk image: the app plus an Applications shortcut to drag it onto.
+make_dmg() {
+    stage=$(mktemp -d)
+    chmod 755 "$stage" # mktemp makes it owner-only; the volume root inherits this
+    ditto "$app" "$stage/Teamwork Timer.app"
+    ln -s /Applications "$stage/Applications"
+    rm -f "$1"
+    hdiutil create -volname "Teamwork Timer" -srcfolder "$stage" -format UDZO -ov "$1" >/dev/null
+    rm -rf "$stage"
+}
+
 # Sign with a stable local identity, not ad hoc: an ad-hoc signature changes every build, and macOS then
 # treats each build as a new app (Keychain sign-in unreadable, notification permission lost).
 # The self-signed identity lives in its own keychain under .signing/ and never touches the login keychain.
 if [ -n "${SIGNING_IDENTITY:-}" ]; then
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
     codesign --verify --deep --strict "$app"
-    archive="build/TeamworkTimer.zip"
-    ditto -c -k --keepParent "$app" "$archive"
+    # Apple's flow for disk images: sign the image, notarize it (which covers the app inside), staple it.
+    archive="build/TeamworkTimer.dmg"
+    make_dmg "$archive"
+    codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$archive"
     if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
         xcrun notarytool submit "$archive" --keychain-profile "$NOTARY_PROFILE" --keychain "$NOTARY_KEYCHAIN" --wait
     else
         xcrun notarytool submit "$archive" --keychain-profile "$NOTARY_PROFILE" --wait
     fi
-    xcrun stapler staple "$app"
-    xcrun stapler validate "$app"
-    ditto -c -k --keepParent "$app" "$archive"
+    xcrun stapler staple "$archive"
+    xcrun stapler validate "$archive"
     echo "$archive"
     exit 0
 fi
@@ -50,8 +62,8 @@ fi
 if [ -n "${UNSIGNED_RELEASE:-}" ]; then
     codesign --force --sign - "$app"
     codesign --verify --deep --strict "$app"
-    archive="build/TeamworkTimer.zip"
-    ditto -c -k --keepParent "$app" "$archive"
+    archive="build/TeamworkTimer.dmg"
+    make_dmg "$archive"
     echo "$archive"
     exit 0
 fi

@@ -3,7 +3,7 @@
 
 **Install**
 
-1. Unzip `TeamworkTimer.zip` and move **Teamwork Timer** to Applications.
+1. Open `TeamworkTimer.dmg` and drag **Teamwork Timer** onto the Applications folder.
 2. Right-click the app and choose **Open**, then confirm. Or run:
    ```bash
    xattr -dr com.apple.quarantine "/Applications/Teamwork Timer.app"

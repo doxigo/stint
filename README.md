@@ -55,8 +55,8 @@ The original Teamwork Timer is an Electron 4 app that runs under Rosetta and fee
 
 ## Install
 
-1. Download `TeamworkTimer.zip` from the latest [release](https://github.com/doxigo/teamwork-timer/releases) and unzip it.
-2. Move **Teamwork Timer** to Applications and open it.
+1. Download `TeamworkTimer.dmg` from the latest [release](https://github.com/doxigo/teamwork-timer/releases) and open it.
+2. Drag **Teamwork Timer** onto the Applications folder, then open it from Applications.
 
 Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned pre-releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Teamwork Timer.app"`.
 
@@ -110,7 +110,7 @@ For a signed local release, import your Developer ID Application identity, creat
 SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE="your-profile" ./bundle.sh
 ```
 
-The notarized archive is `build/TeamworkTimer.zip`. Local builds without these variables use the development signing identity and are not public release artifacts.
+The notarized disk image is `build/TeamworkTimer.dmg`. Local builds without these variables use the development signing identity and are not public release artifacts.
 
 Account data is isolated by site and user. Old unscoped pins, recents, and adjustments remain unchanged in preferences as an unassigned backup; they are not automatically imported into an account. New pins are restored only for their own account.
 
