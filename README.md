@@ -19,12 +19,12 @@
 
 ## Why
 
-The original Teamwork Timer is an Electron 4 app that runs under Rosetta and feels it. This one is a small native app that lives in the menu bar, uses Teamwork's own server timers (so a timer you start on the web shows up here, and the other way round), and borrows the parts of Harvest and Toggl that make tracking painless.
+The original Teamwork Timer is an Electron 4 app that runs under Rosetta and feels it. This one is a small native app that lives in the menu bar, uses Teamwork's own server timers (so a timer you start on the web shows up here, and the other way round), and keeps tracking down to a click or a keystroke.
 
 ## Features
 
-- **Menu bar first.** The running timer ticks in the menu bar as time, task and time, a Harvest-style badge, or just an icon.
-- **Harvest-style popover.** Today's timers and logged time, a week strip with daily totals, one-click Start and Pause, and your daily target from Teamwork.
+- **Menu bar first.** The running timer ticks in the menu bar as time, task and time, a compact badge, or just an icon.
+- **A popover for the whole day.** Today's timers and logged time, a week strip with daily totals, one-click Start and Pause, and your daily target from Teamwork.
 - **Pinned tasks.** Pin the work you repeat and start it with ⌘1–⌘9.
 - **Starred projects, Due Today and Recent** at the top of every picker. Search any task or project, or paste a Teamwork task link.
 - **Log with care.** Edit the duration (`1:30`, `1.5h`, `90m`), round up or down to a step you choose, mark the task complete, or log every timer at once.
@@ -47,7 +47,7 @@ The original Teamwork Timer is an Electron 4 app that runs under Rosetta and fee
   </tr>
   <tr>
     <td><img src="docs/screenshots/settings.png" alt="Settings"></td>
-    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="Time badge in the menu bar" width="200"><br><sub>The Harvest-style <b>Time badge</b> menu bar style</sub></td>
+    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="Time badge in the menu bar" width="200"><br><sub>The <b>Time badge</b> menu bar style</sub></td>
   </tr>
 </table>
 
@@ -101,7 +101,7 @@ You need macOS 26 and either Xcode 26 or the Command Line Tools.
 
 `bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` builds the app on GitHub Actions; pushing a `v*` tag publishes a release with the zipped app.
 
-[DESIGN.md](DESIGN.md) holds the reverse-engineering notes on the old app, the Harvest and Toggl comparison, the information architecture, and the Teamwork API details.
+[DESIGN.md](DESIGN.md) holds the reverse-engineering notes on the old app, the information architecture, and the Teamwork API details.
 
 ## Project layout
 
