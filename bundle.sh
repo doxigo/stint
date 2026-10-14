@@ -18,6 +18,12 @@ cp Resources/AppIcon.icns "$app/Contents/Resources/"
 # Sign with a stable local identity, not ad hoc: an ad-hoc signature changes every build, and macOS then
 # treats each build as a new app (Keychain sign-in unreadable, notification permission lost).
 # The self-signed identity lives in its own keychain under .signing/ and never touches the login keychain.
+if [ -n "${CI:-}" ]; then
+    # CI starts fresh every run, so a self-signed identity would be new each time anyway: ad hoc is equivalent.
+    codesign --force --sign - "$app"
+    echo "$app"
+    exit 0
+fi
 keychain="$PWD/.signing/dev.keychain-db"
 identity="Teamwork Timer Local Signing"
 if [ ! -f "$keychain" ]; then
