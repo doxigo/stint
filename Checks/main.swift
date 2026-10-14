@@ -142,6 +142,10 @@ for bad in ["/callback?code=abc", "/callback?code=abc&state=wrong", "/wrong?code
 }
 check(callback("/callback?code=abc&state=expected", method: "POST").isEmpty, "oauth rejects wrong method")
 check(callbackQuery(fromRequest: "GET /callback?code=abc&state=expected HTTP/1.1\r\n", redirect: redirect, state: "expected").isEmpty, "oauth waits for complete headers")
+check(callbackQuery(fromRequest: "GET /callback/?code=abc&state=s HTTP/1.1\r\n\r\n", redirect: URL(string: "http://localhost:8123/callback/")!, state: "s")["code"] == "abc",
+      "oauth keeps a trailing slash in the redirect path")
+check(callbackQuery(fromRequest: "GET /?code=abc&state=s HTTP/1.1\r\n\r\n", redirect: URL(string: "http://localhost:8123")!, state: "s")["code"] == "abc",
+      "oauth root redirect")
 for good in ["http://localhost:8123", "http://127.0.0.1:1/callback", "http://[::1]:65535/callback"] {
     check(oauthRedirect(good) != nil, "valid redirect \(good)")
 }

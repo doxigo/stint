@@ -33,6 +33,13 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
         run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, SIGNING_IDENTITY=identity, NOTARY_PROFILE=profile), capture_output=True)
         assert run.returncode != 0, 'missing/invalid signing credentials must fail'
         assert not (root / '.build').exists(), 'signing preflight must run before building'
+    run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1'), capture_output=True)
+    assert run.returncode == 0, run.stderr.decode()
+    calls = (root / 'calls').read_text()
+    assert 'codesign --force --sign -' in calls, 'explicit unsigned release is ad-hoc signed'
+    assert 'notarytool' not in calls and 'stapler' not in calls, 'unsigned release never claims notarization'
+    assert (root / 'build/TeamworkTimer.zip').exists(), 'unsigned release produces the archive'
+    (root / 'calls').unlink()
     env.update(SIGNING_IDENTITY='Developer ID Application: Fixture (TEST)', NOTARY_PROFILE='profile')
     run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, FAIL_NOTARY='1'), capture_output=True)
     assert run.returncode != 0, 'notarization rejection must fail the build'

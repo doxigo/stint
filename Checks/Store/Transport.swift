@@ -34,6 +34,7 @@ final class MockState: @unchecked Sendable {
                 removed.insert(Int(path.split(separator: "/").last!.split(separator: ".").first!)!)
                 return (204, "", 0)
             }
+            if path.hasSuffix("/timers.json"), mode == "offline-once" { mode = "normal"; return (503, "{}", 0) }
             if path.hasSuffix("/timers.json") {
                 let ids = [1, 2].filter { !removed.contains($0) }
                 let rows = ids.map { "{\"id\":\($0),\"running\":false,\"duration\":600,\"projectId\":\($0 == 1 ? 101 : 202)}" }.joined(separator: ",")

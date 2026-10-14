@@ -76,6 +76,7 @@ final class Store {
     private var accountReady = false
     private var loggingTimers: Set<Int> = []
     @ObservationIgnored private var completedTimers: Set<Int> = []
+    @ObservationIgnored private var pollError: String?
     @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let logDirectory: URL
@@ -130,7 +131,7 @@ final class Store {
         }
         let credentials = try await Launchpad.exchange(code: try await code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
         try Task.checkCancellation()
-        try Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret")
+        try? Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret") // convenience only; the code is already spent
         NSApp.activate()
         try await connect(credentials)
     }
@@ -200,19 +201,27 @@ final class Store {
         guard sessionID == session else { throw CancellationError() }
         try Keychain.set(try JSONEncoder().encode(credentials), for: "credentials")
         activate(credentials)
-        try identify(me)
+        identify(me)
         await loadStarred()
         if Reminders.longTimerAlert { await Reminders.requestPermission() }
     }
 
-    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?)) throws {
+    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?)) {
         accountReady = false
         (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength)
-        pins = load("pins") ?? []
-        recents = load("recents") ?? []
-        adjustments = load("adjustments") ?? [:]
+        pins = load("pins") ?? adoptLegacy("pins") ?? []
+        recents = load("recents") ?? adoptLegacy("recents") ?? []
+        adjustments = load("adjustments") ?? adoptLegacy("adjustments") ?? [:]
         if let logFile, FileManager.default.fileExists(atPath: logFile.path) {
-            logAttempts = try JSONDecoder().decode([Int: LogStatus].self, from: Data(contentsOf: logFile))
+            do {
+                logAttempts = try JSONDecoder().decode([Int: LogStatus].self, from: Data(contentsOf: logFile))
+            } catch {
+                // An unreadable receipt file mustn't lock the account out of polling and logging: set it aside and warn.
+                let aside = logFile.appendingPathExtension("unreadable")
+                try? FileManager.default.removeItem(at: aside)
+                try? FileManager.default.moveItem(at: logFile, to: aside)
+                errorMessage = "Earlier log receipts couldn't be read. If a log was interrupted, check Teamwork for a duplicate entry."
+            }
         }
         accountReady = true
     }
@@ -237,14 +246,25 @@ final class Store {
 
     func refresh() async {
         if !accountReady {
-            guard let me = await perform({ try await $0.me() }) else { return }
-            do { try identify(me) } catch { errorMessage = error.localizedDescription; return }
+            guard let me = await poll({ try await $0.me() }) else { return }
+            identify(me)
         }
-        guard let page = await perform({ try await $0.timers() }) else { return }
+        guard let page = await poll({ try await $0.timers() }) else { return }
+        // A failed poll's banner (e.g. offline right after wake) clears once polling works; failed writes stay.
+        if let pollError, errorMessage == pollError { errorMessage = nil }
+        pollError = nil
         merge(page.included)
         timers = page.timers.sorted { ($0.running ? 1 : 0, $0.lastActive) > ($1.running ? 1 : 0, $1.lastActive) }
         updateTicker()
         if let running = runningTimer, let item = workItem(for: running) { remember(item) }
+        // Time already logged but the timer's removal failed: remove it now, so it can't keep running and have
+        // its extra time dropped by a later remove-only log.
+        for timer in timers where logAttempts[timer.id] == .posted && !loggingTimers.contains(timer.id) {
+            if await perform({ try await $0.delete(timer.id) }) != nil {
+                completedTimers.insert(timer.id)
+                timers.removeAll { $0.id == timer.id }
+            }
+        }
         let live = Set(timers.map(\.id))
         if adjustments.keys.contains(where: { !live.contains($0) }) {
             adjustments = adjustments.filter { live.contains($0.key) }
@@ -362,7 +382,7 @@ final class Store {
         }
         let direct = durationEdited || markTaskComplete || adjustments[timer.id] != nil
         if logAttempts[timer.id] != .posted {
-            guard seconds.isFinite, seconds >= 60, seconds <= 86400 else {
+            guard seconds.isFinite, seconds >= 60, !direct || seconds <= 86400 else {
                 errorMessage = "Enter a duration between one minute and 24 hours."
                 return false
             }
@@ -421,7 +441,7 @@ final class Store {
             catch { errorMessage = error.localizedDescription; return }
         }
         errorMessage = nil
-        if entryExists {
+        if entryExists, timers.contains(where: { $0.id == timer.id }) {
             _ = await log(timer, seconds: max(60, elapsed(timer)), durationEdited: true,
                           description: timer.description, billable: timer.billable, markTaskComplete: false)
         }
@@ -589,6 +609,23 @@ final class Store {
 
     private static func isCancellation(_ error: any Error) -> Bool {
         error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    /// Runs a poll request; its failure message is remembered so the next successful poll can clear it.
+    private func poll<T: Sendable>(_ work: @escaping @MainActor (TeamworkClient) async throws -> T) async -> T? {
+        let before = errorMessage
+        let result = await perform(work)
+        if result == nil, errorMessage != before { pollError = errorMessage }
+        return result
+    }
+
+    /// Values saved before keys were scoped per account: the first account to sign in adopts them, once.
+    private func adoptLegacy<T: Codable>(_ key: String) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        defaults.removeObject(forKey: key)
+        guard let value = try? JSONDecoder().decode(T.self, from: data) else { return nil }
+        save(value, key)
+        return value
     }
 
     private func load<T: Decodable>(_ key: String) -> T? {

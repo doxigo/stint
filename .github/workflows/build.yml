@@ -32,7 +32,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - name: Signing mode
+        id: mode
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+        run: |
+          if [ -n "$CERTIFICATE_P12" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No Developer ID secrets: publishing an unsigned pre-release."
+          fi
       - name: Prepare signing
+        if: steps.mode.outputs.signed == 'true'
         env:
           CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -69,11 +81,22 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${GITHUB_REF_NAME#v}" Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER}" Info.plist
       - name: Sign and notarize
+        if: steps.mode.outputs.signed == 'true'
         run: ./bundle.sh
+      - name: Build unsigned pre-release
+        if: steps.mode.outputs.signed != 'true'
+        run: UNSIGNED_RELEASE=1 ./bundle.sh
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" build/TeamworkTimer.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          SIGNED: ${{ steps.mode.outputs.signed }}
+        run: |
+          if [ "$SIGNED" = true ]; then
+            gh release create "$GITHUB_REF_NAME" build/TeamworkTimer.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          else
+            gh release create "$GITHUB_REF_NAME" build/TeamworkTimer.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+              --prerelease --notes-file .github/unsigned-release.md
+          fi
       - name: Clean signing credentials
         if: always()
         run: |

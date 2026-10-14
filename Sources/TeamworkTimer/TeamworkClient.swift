@@ -165,12 +165,15 @@ actor TeamworkClient {
         var items: [URLQueryItem] = []
         if !query.isEmpty { items.append(.init(name: "searchTerm", value: query)) }
         if let projectId { items.append(.init(name: "projectIds", value: String(projectId))) }
-        return try await tasks(items, projectId: projectId, projectName: projectName)
+        // Search-as-you-type across every project takes the first page only, like project search: walking all
+        // pages could mean dozens of requests per pause in typing. A project's own list stays complete.
+        return try await tasks(items, projectId: projectId, projectName: projectName, allPages: projectId != nil || query.isEmpty)
     }
 
-    private func tasks(_ filters: [URLQueryItem], projectId: Int?, projectName: String?) async throws -> [WorkItem] {
+    private func tasks(_ filters: [URLQueryItem], projectId: Int?, projectName: String?, allPages: Bool = true) async throws -> [WorkItem] {
         let items = filters + [.init(name: "include", value: "projects,tasklists"), .init(name: "pageSize", value: "50")]
-        let page = try await getPages(TasksResponse.self, "projects/api/v3/tasks.json", items)
+        let page = allPages ? try await getPages(TasksResponse.self, "projects/api/v3/tasks.json", items)
+                            : try await get(TasksResponse.self, "projects/api/v3/tasks.json", items)
         return page.tasks.compactMap { task in
             let listProject = task.tasklistId.flatMap { page.included.tasklists[String($0)]?.projectId }
             guard let pid = task.projectId ?? listProject ?? projectId else { return nil }
@@ -196,7 +199,7 @@ actor TeamworkClient {
         while more {
             page += 1
             let next = try await get(type, path, query + [.init(name: "page", value: String(page))])
-            guard next.itemCount > 0 else { throw SignInError("Teamwork returned an empty page before the list was complete.") }
+            guard next.itemCount > 0 else { break } // hasMore can be set when the previous page was exactly full
             let count = result.itemCount
             result.append(next)
             more = next.meta?.page.hasMore ?? false

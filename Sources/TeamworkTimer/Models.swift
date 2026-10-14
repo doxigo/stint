@@ -263,7 +263,7 @@ func callbackQuery(fromRequest request: String, redirect: URL, state: String) ->
     guard parts.count == 3, parts[0] == "GET", parts[2] == "HTTP/1.1" || parts[2] == "HTTP/1.0",
           parts[1].hasPrefix("/"), !parts[1].hasPrefix("//"),
           let url = URLComponents(string: "http://localhost" + parts[1]),
-          url.path == (redirect.path.isEmpty ? "/" : redirect.path) else { return [:] }
+          url.path == (redirect.path(percentEncoded: false).isEmpty ? "/" : redirect.path(percentEncoded: false)) else { return [:] }
     let items = url.queryItems ?? []
     guard Set(items.map(\.name)).count == items.count else { return [:] }
     let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })

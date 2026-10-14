@@ -133,13 +133,40 @@ check(await !blockedStore.log(first, seconds: 900, durationEdited: true, descrip
 check(state.lock.withLock { state.posts.isEmpty }, "no POST before durable attempt is written")
 try blockedStore.signOut()
 
+let legacyRecent = WorkItem(projectId: 101, projectName: "Legacy")
+defaults.set(try JSONEncoder().encode([legacyRecent]), forKey: "recents")
+state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.deleteFails = false }
+try await store.signIn(site: "upgrade.teamwork.com", token: "placeholder")
+check(store.recents.contains(legacyRecent) && defaults.data(forKey: "recents") == nil, "recents saved before per-account keys are adopted once")
+state.lock.withLock { state.mode = "offline-once" }
+await store.refresh()
+check(store.errorMessage != nil, "a failed poll shows its error")
+await store.refresh()
+check(store.errorMessage == nil, "the next successful poll clears a poll error")
+let long = store.timers.first { $0.id == 1 }!
+check(await store.log(long, seconds: 90_000, durationEdited: false, description: "", billable: false, markTaskComplete: false),
+      "an unedited timer over 24 hours logs through native completion")
+try store.signOut()
+
+state.lock.withLock { state.removed = []; state.posts = [:]; state.deleteFails = true }
+try await store.signIn(site: "cleanup2.teamwork.com", token: "placeholder")
+await store.refresh()
+_ = await store.log(store.timers.first { $0.id == 1 }!, seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
+state.lock.withLock { state.deleteFails = false }
+await store.refresh()
+check(!store.timers.contains { $0.id == 1 } && state.lock.withLock { state.posts[101] == 1 },
+      "a logged timer whose removal failed is removed by the next poll, without reposting")
+try store.signOut()
+
 state.lock.withLock { state.mode = "pagination" }
 let client = TeamworkClient(credentials: Credentials(kind: .apiToken, site: URL(string: "https://page.teamwork.com/")!, secret: "placeholder"))
 let entries = try await client.timeEntries(userId: 1, from: .now, to: .now)
 check(entries.timelogs.count == 2 && entries.included.projects.count == 2, "pagination merges rows and included records")
 check(try await client.myTasks(userId: 1, filter: .today).count == 2, "task pagination")
 check(try await client.starredProjects().count == 2, "starred project pagination")
+check(try await client.tasks(matching: "t", projectId: nil, projectName: nil).count == 1, "global task search reads one page")
+check(try await client.tasks(matching: "", projectId: 101, projectName: "P").count == 2, "a project's task list reads every page")
 state.lock.withLock { state.mode = "empty-page" }
-do { _ = try await client.timeEntries(userId: 1, from: .now, to: .now); check(false, "pagination rejects unexpected empty page") } catch {}
+check(try await client.timeEntries(userId: 1, from: .now, to: .now).timelogs.count == 1, "an empty page ends the list")
 print(failed == 0 ? "All store and transport checks passed." : "\(failed) store check(s) failed.")
 exit(failed == 0 ? 0 : 1)

@@ -55,10 +55,10 @@ The original Teamwork Timer is an Electron 4 app that runs under Rosetta and fee
 
 ## Install
 
-1. Download `TeamworkTimer.zip` from a [release](https://github.com/doxigo/teamwork-timer/releases) and unzip it.
+1. Download `TeamworkTimer.zip` from the latest [release](https://github.com/doxigo/teamwork-timer/releases) and unzip it.
 2. Move **Teamwork Timer** to Applications and open it.
 
-The release workflow requires Developer ID signing and Apple notarization. Older releases may be unsigned; build from source if no notarized release is available.
+Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned pre-releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Teamwork Timer.app"`.
 
 Requires macOS 26 or later.
 
@@ -96,7 +96,7 @@ You need macOS 26 and either Xcode 26 or the Command Line Tools.
 ./bundle.sh   # builds and signs "build/Teamwork Timer.app"
 ```
 
-`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release only after signing, notarization, and stapling succeed.
+`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an explicitly labelled unsigned pre-release.
 
 For public releases, configure these GitHub Actions secrets:
 

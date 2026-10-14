@@ -9,8 +9,8 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     esac
     : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a notarytool Keychain profile}"
 fi
-if [ -n "${CI:-}" ] && [ -z "${SIGNING_IDENTITY:-}" ]; then
-    echo "CI app bundles require SIGNING_IDENTITY and NOTARY_PROFILE. No unsigned release was produced." >&2
+if [ -n "${CI:-}" ] && [ -z "${SIGNING_IDENTITY:-}" ] && [ -z "${UNSIGNED_RELEASE:-}" ]; then
+    echo "CI app bundles require SIGNING_IDENTITY and NOTARY_PROFILE (or an explicit UNSIGNED_RELEASE=1). No release was produced." >&2
     exit 1
 fi
 # Command Line Tools only: pin the macOS 26 SDK, because the CLT's macOS 27 SwiftUI needs Xcode's macro
@@ -41,6 +41,16 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     fi
     xcrun stapler staple "$app"
     xcrun stapler validate "$app"
+    ditto -c -k --keepParent "$app" "$archive"
+    echo "$archive"
+    exit 0
+fi
+# Explicit opt-in only (UNSIGNED_RELEASE=1): an ad-hoc signed, un-notarized archive for a pre-release, used
+# until Developer ID secrets exist. Gatekeeper blocks its first launch; the release notes say how to open it.
+if [ -n "${UNSIGNED_RELEASE:-}" ]; then
+    codesign --force --sign - "$app"
+    codesign --verify --deep --strict "$app"
+    archive="build/TeamworkTimer.zip"
     ditto -c -k --keepParent "$app" "$archive"
     echo "$archive"
     exit 0
