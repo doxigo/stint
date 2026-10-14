@@ -138,7 +138,9 @@ struct AccountSettings: View {
                     LabeledContent("Signed in as", value: store.accountName ?? "—")
                 }
                 Section {
-                    Button("Sign Out", role: .destructive) { store.signOut() }
+                    Button("Sign Out", role: .destructive) {
+                        do { try store.signOut() } catch { self.error = error.localizedDescription }
+                    }
                 }
             } else {
                 Picker("Sign in with", selection: $method) {
@@ -189,14 +191,14 @@ struct AccountSettings: View {
                         Button("Cancel") { signingIn?.cancel() }
                     }
                 }
-                if let error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
-                }
             }
+            if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
         }
         .formStyle(.grouped)
         .task(id: method) {
-            if !store.isSignedIn, method == .oauth, clientSecret.isEmpty { clientSecret = Store.savedOAuthSecret ?? "" }
+            if !store.isSignedIn, method == .oauth, clientSecret.isEmpty {
+                do { clientSecret = try Store.savedOAuthSecret() ?? "" } catch { self.error = error.localizedDescription }
+            }
         }
     }
 

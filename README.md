@@ -55,13 +55,10 @@ The original Teamwork Timer is an Electron 4 app that runs under Rosetta and fee
 
 ## Install
 
-1. Download `TeamworkTimer.zip` from the latest [release](https://github.com/doxigo/teamwork-timer/releases) (or the newest successful [build](https://github.com/doxigo/teamwork-timer/actions/workflows/build.yml) run's artifacts) and unzip it.
-2. Move **Teamwork Timer** to Applications.
-3. The app isn't notarized, so macOS blocks the first launch. Either right-click the app and choose **Open**, or run:
+1. Download `TeamworkTimer.zip` from a [release](https://github.com/doxigo/teamwork-timer/releases) and unzip it.
+2. Move **Teamwork Timer** to Applications and open it.
 
-   ```bash
-   xattr -dr com.apple.quarantine "/Applications/Teamwork Timer.app"
-   ```
+The release workflow requires Developer ID signing and Apple notarization. Older releases may be unsigned; build from source if no notarized release is available.
 
 Requires macOS 26 or later.
 
@@ -95,11 +92,29 @@ A global Start/Pause shortcut can be set in Settings.
 You need macOS 26 and either Xcode 26 or the Command Line Tools.
 
 ```bash
-./check.sh    # assert-based checks for the models, API decoding, parsing and rounding
+./check.sh    # models, OAuth validation, mocked session/logging/pagination, and release packaging checks
 ./bundle.sh   # builds and signs "build/Teamwork Timer.app"
 ```
 
-`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` builds the app on GitHub Actions; pushing a `v*` tag publishes a release with the zipped app.
+`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release only after signing, notarization, and stapling succeed.
+
+For public releases, configure these GitHub Actions secrets:
+
+- `MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application certificate, including its private key.
+- `MACOS_CERTIFICATE_PASSWORD`: the exported certificate's password.
+- `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`: the Apple account, app-specific password, and team for notarization.
+
+For a signed local release, import your Developer ID Application identity, create a profile with `xcrun notarytool store-credentials`, then run:
+
+```bash
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE="your-profile" ./bundle.sh
+```
+
+The notarized archive is `build/TeamworkTimer.zip`. Local builds without these variables use the development signing identity and are not public release artifacts.
+
+Account data is isolated by site and user. Old unscoped pins, recents, and adjustments remain unchanged in preferences as an unassigned backup; they are not automatically imported into an account. New pins are restored only for their own account.
+
+If a logging response is lost, check Teamwork before retrying. The log form lets you confirm that the entry exists and remove the leftover timer, or confirm that no entry exists and allow a retry. Successful posts awaiting timer removal are recorded atomically on disk, so restarting the app does not post them again.
 
 [DESIGN.md](DESIGN.md) holds the reverse-engineering notes on the old app, the information architecture, and the Teamwork API details.
 

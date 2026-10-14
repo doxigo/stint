@@ -15,14 +15,14 @@ struct TeamworkTimerApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView().environment(store)
+            MenuBarView().environment(store).id(store.sessionID)
         } label: {
             MenuBarLabel().environment(store)
         }
         .menuBarExtraStyle(.window)
 
         Window("Teamwork Timer", id: "main") {
-            MainWindow().environment(store).tint(Brand.purple)
+            MainWindow().environment(store).tint(Brand.purple).id(store.sessionID)
         }
         .defaultSize(width: 920, height: 620)
         .defaultLaunchBehavior(.suppressed)

@@ -8,7 +8,14 @@ src=Sources/TeamworkTimer
 clt_sdk=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
 case "$(xcode-select -p)" in */CommandLineTools) [ -d "$clt_sdk" ] && export SDKROOT="$clt_sdk" ;; esac
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 xcrun swiftc -swift-version 6 \
     "$src/Models.swift" "$src/TeamworkClient.swift" "$src/Auth.swift" "$src/Store.swift" "$src/Idle.swift" \
-    "$src/Reminders.swift" Checks/main.swift -o "$out/checks"
+    "$src/Reminders.swift" "$src/Brand.swift" "$src/Chrome.swift" "$src/MenuBarView.swift" \
+    Checks/main.swift -o "$out/checks"
 "$out/checks" Checks/fixtures
+xcrun swiftc -swift-version 6 \
+    "$src/Models.swift" "$src/TeamworkClient.swift" "$src/Store.swift" \
+    Checks/Store/Services.swift Checks/Store/Transport.swift Checks/Store/main.swift -o "$out/store-checks"
+"$out/store-checks"
+python3 Checks/bundle.py

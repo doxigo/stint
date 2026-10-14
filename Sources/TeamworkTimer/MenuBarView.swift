@@ -26,22 +26,27 @@ struct MenuBarLabel: View {
 
     @ViewBuilder private var content: some View {
         if let timer = store.activeTimer {
-            // A status item shows one image and one text, so task and time go in a single string.
-            // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
-            let elapsed = store.elapsed(timer, at: store.menuBarNow)
-            let time = showsSeconds ? elapsed.clock : elapsed.hoursMinutes
-            if style == .badge {
-                Image(nsImage: MenuBarBadge.image(running: timer.running, time: time))
-                    .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
+            if style == .icon {
+                Image(systemName: timer.running ? "play.fill" : "pause.fill")
+                    .accessibilityLabel(timer.running ? "Running" : "Paused")
             } else {
-                HStack(spacing: 4) {
-                    // Shape, not just colour, tells running from paused.
-                    Image(systemName: timer.running ? "play.fill" : "pause.fill")
-                    switch style {
-                    // Leading space: the status item ignores HStack spacing between its image and title.
-                    case .taskAndTime: Text(" \(Self.shortened(store.title(of: timer)))  \(time)").monospacedDigit()
-                    case .time: Text(" \(time)").monospacedDigit()
-                    case .icon, .badge: EmptyView()
+                // A status item shows one image and one text, so task and time go in a single string.
+                // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
+                let elapsed = store.elapsed(timer, at: store.menuBarNow)
+                let time = showsSeconds ? elapsed.clock : elapsed.hoursMinutes
+                if style == .badge {
+                    Image(nsImage: MenuBarBadge.image(running: timer.running, time: time))
+                        .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
+                } else {
+                    HStack(spacing: 4) {
+                        // Shape, not just colour, tells running from paused.
+                        Image(systemName: timer.running ? "play.fill" : "pause.fill")
+                        switch style {
+                        // Leading space: the status item ignores HStack spacing between its image and title.
+                        case .taskAndTime: Text(" \(Self.shortened(store.title(of: timer)))  \(time)").monospacedDigit()
+                        case .time: Text(" \(time)").monospacedDigit()
+                        case .icon, .badge: EmptyView()
+                        }
                     }
                 }
             }
@@ -59,8 +64,11 @@ struct MenuBarLabel: View {
 /// Harvest-style status item: a play/pause segment and the time in one rounded pill. Drawn as a
 /// template image (the label takes a single image), so the menu bar tints it for light and dark
 /// wallpapers and inverts it while the popover is open.
-enum MenuBarBadge {
+@MainActor enum MenuBarBadge {
+    private static var cached: (running: Bool, time: String, image: NSImage)?
+
     static func image(running: Bool, time: String) -> NSImage {
+        if let cached, cached.running == running, cached.time == time { return cached.image }
         let text = NSAttributedString(string: time, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.black,
         ])
@@ -82,6 +90,7 @@ enum MenuBarBadge {
             return true
         }
         image.isTemplate = true
+        cached = (running, time, image)
         return image
     }
 }
@@ -350,20 +359,13 @@ struct TimerRow: View {
         if confirmingDiscard { discardConfirmation } else { row }
     }
 
-    /// Inline rather than a dialog: dialogs attached to the menu-bar window can close it and lose the action.
     private var discardConfirmation: some View {
-        HStack {
-            Label("Discard \(store.elapsed(timer).hoursMinutes) without logging?", systemImage: "trash")
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("Cancel") { confirmingDiscard = false }
-                .keyboardShortcut(.cancelAction)
-            Button("Discard", role: .destructive) {
-                confirmingDiscard = false
-                Task { await store.discard(timer) }
-            }
+        ConfirmRow(question: "Discard this timer?",
+                   detail: "\(store.title(of: timer)) · \(store.elapsed(timer).hoursMinutes) won't be logged",
+                   action: "Discard", cancel: { confirmingDiscard = false }) {
+            confirmingDiscard = false
+            Task { await store.discard(timer) }
         }
-        .padding(.vertical, 4)
     }
 
     private var row: some View {

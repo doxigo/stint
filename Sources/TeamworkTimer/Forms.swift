@@ -22,11 +22,12 @@ struct LogView: View {
     var body: some View {
         let seconds = parseDuration(duration)
         VStack(spacing: 0) {
-            ScreenHeader("Log Time")
+            ScreenHeader("Log Time", back: done)
             TaskSummary(title: store.title(of: timer), subtitle: store.subtitle(of: timer),
                         url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
+            LogRecovery(timer: timer, done: done)
             Divider()
-            FieldRow(label: "Duration", note: durationNote(seconds), noteIsError: (seconds ?? 0) < 60) {
+            FieldRow(label: "Duration", note: durationNote(seconds), noteIsError: !duration.isEmpty && (seconds ?? 0) < 60) {
                 DurationField(text: $duration)
             }
             RowDivider()
@@ -40,7 +41,7 @@ struct LogView: View {
                 }
             }
             ActionBar {
-                Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: done)
                 Spacer()
                 Button("Log \(seconds.map(\.hoursMinutes) ?? "")") {
                     guard let seconds else { return }
@@ -53,19 +54,21 @@ struct LogView: View {
                     }
                 }
                 .primaryAction()
-                .disabled(saving || (seconds ?? 0) < 60)
+                .disabled(saving || (seconds ?? 0) < 60 || store.logAttempts[timer.id] == .uncertain)
             }
         }
         .onAppear {
             let tracked = store.elapsed(timer)
             exactDuration = tracked.hoursMinutes
-            duration = rounding.apply(tracked, step: roundingStep).hoursMinutes
+            // Under a minute tracked (e.g. a timer used as a placeholder): ask for the time instead of showing 0:00.
+            duration = tracked < 60 ? "" : rounding.apply(tracked, step: roundingStep).hoursMinutes
             description = timer.description
             billable = timer.billable
         }
     }
 
     private func durationNote(_ seconds: TimeInterval?) -> String? {
+        if duration.isEmpty { return "Enter the time to log, like 1:30, 1.5h or 90m." }
         guard let seconds else { return "Enter a duration like 1:30, 1.5h or 90m." }
         if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
         guard duration != exactDuration else { return nil }
@@ -94,7 +97,7 @@ struct EditTimerView: View {
                     choosing = false
                 }
             } else {
-                ScreenHeader("Edit Timer")
+                ScreenHeader("Edit Timer", back: done)
                 TaskSummary(title: current?.title ?? store.title(of: timer), subtitle: current?.subtitle,
                             url: store.webURL(projectId: current?.projectId ?? timer.projectId,
                                               taskId: current.map(\.taskId) ?? timer.taskId)) {
@@ -108,7 +111,7 @@ struct EditTimerView: View {
                 RowDivider()
                 FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
                 ActionBar {
-                    Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                    Button("Cancel", action: done)
                     Spacer()
                     Button("Save") {
                         saving = true
@@ -153,11 +156,12 @@ struct LogAllView: View {
         let valid = chosen.allSatisfy { (parseDuration($0.duration) ?? 0) >= 60 }
         let total = chosen.compactMap { parseDuration($0.duration) }.reduce(0, +)
         VStack(spacing: 0) {
-            ScreenHeader("Log All")
+            ScreenHeader("Log All", back: done)
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach($drafts) { $draft in
                         draftRow($draft)
+                        LogRecovery(timer: draft.timer)
                         RowDivider()
                     }
                     if rounding != .off {
@@ -175,14 +179,16 @@ struct LogAllView: View {
             ActionBar {
                 Text("Total \(total.hoursMinutes)").monospacedDigit().foregroundStyle(.secondary)
                 Spacer()
-                Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: done)
                 Button("Log \(chosen.count) Timer\(chosen.count == 1 ? "" : "s")") {
                     saving = true
                     Task {
                         let entries = chosen.compactMap { draft in
                             parseDuration(draft.duration).map { (draft.timer, $0, draft.duration != draft.exact, draft.billable) }
                         }
-                        if await store.logAll(entries) == entries.count { done() }
+                        let logged = await store.logAll(entries)
+                        drafts.removeAll { logged.contains($0.id) }
+                        if logged.count == entries.count { done() }
                         saving = false
                     }
                 }
@@ -192,7 +198,13 @@ struct LogAllView: View {
         }
         .onAppear(perform: makeDrafts)
         // Opened before timers finished loading: fill in once they arrive.
-        .onChange(of: store.timers.count) { if drafts.isEmpty { makeDrafts() } }
+        .onChange(of: store.timers.count) {
+            if drafts.isEmpty { makeDrafts() }
+            else {
+                let live = Set(store.timers.map(\.id))
+                drafts.removeAll { !live.contains($0.id) }
+            }
+        }
     }
 
     private func makeDrafts() {
@@ -236,6 +248,40 @@ struct LogAllView: View {
     }
 }
 
+private struct LogRecovery: View {
+    @Environment(Store.self) private var store
+    let timer: TWTimer
+    var done: (() -> Void)?
+    @State private var resolving = false
+
+    var body: some View {
+        if let status = store.logAttempts[timer.id], !store.isLogging(timer.id) {
+            VStack(alignment: .leading, spacing: Space.s) {
+                Text(status == .posted ? "This time is already logged. Remove the leftover timer."
+                     : "Check Teamwork to see whether this time was logged before choosing an action.")
+                if let site = store.site { Link("Open Teamwork", destination: site) }
+                HStack {
+                    Button(status == .posted ? "Remove logged timer" : "Entry exists. Remove timer") { resolve(entryExists: true) }
+                    if status == .uncertain {
+                        Button("No entry exists. Allow retry") { resolve(entryExists: false) }
+                    }
+                }
+                .disabled(resolving)
+            }
+            .padding(Space.l)
+        }
+    }
+
+    private func resolve(entryExists: Bool) {
+        resolving = true
+        Task {
+            await store.resolveLog(timer, entryExists: entryExists)
+            if entryExists, !store.timers.contains(where: { $0.id == timer.id }) { done?() }
+            resolving = false
+        }
+    }
+}
+
 /// Edits a logged entry: duration, start, description, billable.
 struct EditEntryView: View {
     @Environment(Store.self) private var store
@@ -252,7 +298,7 @@ struct EditEntryView: View {
         let task = entry.taskId.flatMap(store.taskName)
         let project = entry.projectId.map(store.projectName)
         VStack(spacing: 0) {
-            ScreenHeader("Edit Entry")
+            ScreenHeader("Edit Entry", back: done)
             TaskSummary(title: task ?? project ?? "Time entry", subtitle: task == nil ? nil : project,
                         url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
             Divider()
@@ -270,7 +316,7 @@ struct EditEntryView: View {
             RowDivider()
             FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
             ActionBar {
-                Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: done)
                 Spacer()
                 Button("Save") {
                     guard let seconds else { return }

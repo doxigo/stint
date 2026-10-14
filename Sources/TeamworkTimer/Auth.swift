@@ -1,5 +1,4 @@
 import Foundation
-import LocalAuthentication
 import Network
 import Security
 
@@ -13,45 +12,50 @@ enum Keychain {
     private static let service = "com.doxigo.TeamworkTimer"
     private static let suffix = ".v2"
 
-    static func get(_ account: String) -> Data? {
-        if let data = read(account + suffix) { return data }
-        guard let legacy = read(account) else { return nil }
-        set(legacy, for: account)
-        remove(account, allowPrompt: false)
+    static func get(_ account: String) throws -> Data? {
+        if let data = try read(account + suffix) { return data }
+        guard let legacy = try read(account) else { return nil }
+        try set(legacy, for: account)
+        try remove(account)
         return legacy
     }
 
     /// `nil` deletes the item (and any legacy copy).
-    static func set(_ data: Data?, for account: String) {
+    static func set(_ data: Data?, for account: String) throws {
         guard let data else {
-            remove(account + suffix, allowPrompt: true)
-            remove(account, allowPrompt: false)
+            try remove(account + suffix)
+            try remove(account)
             return
         }
         let query = base(account + suffix)
-        if SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = data
-            SecItemAdd(item as CFDictionary, nil)
-        }
+            try check(SecItemAdd(item as CFDictionary, nil))
+        } else { try check(status) }
     }
 
-    private static func read(_ account: String) -> Data? {
+    private static func read(_ account: String) throws -> Data? {
         var query = base(account)
         query[kSecReturnData as String] = true
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        try check(status)
         return result as? Data
     }
 
-    private static func remove(_ account: String, allowPrompt: Bool) {
-        var query = base(account)
-        if !allowPrompt {
-            let context = LAContext()
-            context.interactionNotAllowed = true // fail quietly rather than ask
-            query[kSecUseAuthenticationContext as String] = context
+    private static func remove(_ account: String) throws {
+        let query = base(account)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecItemNotFound { try check(status) }
+    }
+
+    static func check(_ status: OSStatus) throws {
+        guard status == errSecSuccess else {
+            throw SignInError("Keychain: \(SecCopyErrorMessageString(status, nil) as String? ?? String(status))")
         }
-        SecItemDelete(query as CFDictionary)
     }
 
     private static func base(_ account: String) -> [String: Any] {
@@ -66,9 +70,16 @@ struct SignInError: LocalizedError {
 
 /// Teamwork Launchpad OAuth (authorization-code flow) with the user's own registered client.
 enum Launchpad {
-    static func loginURL(clientID: String, redirect: URL) -> URL {
+    static func makeState() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        try Keychain.check(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes))
+        return Data(bytes).base64EncodedString()
+    }
+
+    static func loginURL(clientID: String, redirect: URL, state: String) -> URL {
         var components = URLComponents(string: "https://www.teamwork.com/launchpad/login")!
-        components.queryItems = [.init(name: "redirect_uri", value: redirect.absoluteString), .init(name: "client_id", value: clientID)]
+        components.queryItems = [.init(name: "redirect_uri", value: redirect.absoluteString), .init(name: "client_id", value: clientID), .init(name: "state", value: state)]
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return components.url!
     }
 
@@ -85,6 +96,9 @@ enum Launchpad {
             throw APIError(status: status, detail: String(decoding: data.prefix(300), as: UTF8.self))
         }
         let token = try JSONDecoder().decode(TokenResponse.self, from: data)
+        guard token.installation.apiEndPoint.scheme == "https", token.installation.apiEndPoint.host != nil else {
+            throw SignInError("Teamwork returned an invalid API endpoint.")
+        }
         return Credentials(kind: .oauth, site: token.installation.apiEndPoint, secret: token.accessToken)
     }
 
@@ -98,9 +112,10 @@ enum Launchpad {
 
 /// Catches the browser's redirect to `http://localhost:<port>` and returns the authorization code.
 enum LoopbackServer {
-    static func waitForCode(on redirect: URL, timeout: TimeInterval = 300) async throws -> String {
-        guard let port = redirect.port.flatMap({ NWEndpoint.Port(rawValue: UInt16($0)) }) else {
-            throw SignInError("The redirect URI needs a port, e.g. http://localhost:8123")
+    static func waitForCode(on redirect: URL, state: String, timeout: TimeInterval = 300) async throws -> String {
+        guard oauthRedirect(redirect.absoluteString) != nil,
+              let value = redirect.port.flatMap(UInt16.init(exactly:)), let port = NWEndpoint.Port(rawValue: value) else {
+            throw SignInError("Use an HTTP loopback redirect with a port from 1 to 65535, e.g. http://localhost:8123")
         }
         // Loopback only (never the network), IPv4 and IPv6: "localhost" may resolve to ::1 or 127.0.0.1.
         let parameters = NWParameters.tcp
@@ -121,24 +136,38 @@ enum LoopbackServer {
             }
             listener.newConnectionHandler = { connection in
                 connection.start(queue: .main)
-                connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, _, _ in
-                    let query = callbackQuery(fromRequest: data.map { String(decoding: $0, as: UTF8.self) } ?? "")
-                    let message = query["code"] != nil ? "Signed in. You can close this tab." : "Sign-in didn't finish. You can close this tab."
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { connection.cancel() }
+                receiveRequest(connection) { request in
+                    let query = callbackQuery(fromRequest: request, redirect: redirect, state: state)
+                    let message = query["code"] != nil ? "Return to Teamwork Timer to finish signing in. You can close this tab." : "Sign-in didn't finish. You can close this tab."
                     let page = "<html><body style=\"font: 15px -apple-system, sans-serif; padding: 40px\">\(message)</body></html>"
-                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n\(page)"
+                    let response = "HTTP/1.1 \(query.isEmpty ? "400 Bad Request" : "200 OK")\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n\(page)"
                     connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
                     if let code = query["code"] {
                         once.resume(returning: code)
                     } else if let error = query["error"] {
                         once.resume(throwing: SignInError("Teamwork sign-in failed: \(error)"))
                     }
-                    // Anything else (favicon.ico, …) is ignored; keep waiting.
                 }
             }
             listener.start(queue: .main)
           }
         } onCancel: {
             once.resume(throwing: CancellationError())
+        }
+    }
+
+    private static func receiveRequest(_ connection: NWConnection, data: Data = Data(),
+                                       complete: @escaping @Sendable (String) -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384 - data.count) { chunk, _, ended, error in
+            let buffer = data + (chunk ?? Data())
+            if buffer.range(of: Data("\r\n\r\n".utf8)) != nil {
+                complete(String(decoding: buffer, as: UTF8.self))
+            } else if error != nil || ended || buffer.count >= 16_384 {
+                connection.cancel()
+            } else {
+                receiveRequest(connection, data: buffer, complete: complete)
+            }
         }
     }
 }

@@ -47,6 +47,9 @@ struct MenuBarView: View {
             }
         }
         .frame(width: 500)
+        // Every screen at its full height: the menu-bar window otherwise squeezed rows that may shrink
+        // (a Log form's duration note ended up drawn over the next row).
+        .fixedSize(horizontal: false, vertical: true)
         // Opaque like Harvest: reads cleanly over busy windows, unlike glass behind dense text.
         .background(.background)
         .tint(Brand.purple)
@@ -74,14 +77,6 @@ struct MenuBarView: View {
             WeekStrip(week: week, selected: $day, totals: dayTotals)
             Divider()
             dayList
-            if let error = store.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Space.l)
-                    .padding(.vertical, Space.s)
-            }
             bottomBar
         }
         // Day navigation from the keyboard, as in Harvest.
@@ -274,8 +269,10 @@ struct WeekStrip: View {
         let calendar = Calendar.current
         let days = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: week.start) }
         HStack(spacing: 0) {
-            Button { move(-7) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 48) }
-                .accessibilityLabel("Previous week")
+            // One day at a time (as ← → do); stepping past Monday or Sunday moves the strip to that week.
+            Button { move(-1) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 48) }
+                .help("Previous day")
+                .accessibilityLabel("Previous day")
             ForEach(days, id: \.self) { day in
                 let isSelected = calendar.isDate(day, inSameDayAs: selected)
                 let isToday = calendar.isDateInToday(day)
@@ -301,8 +298,9 @@ struct WeekStrip: View {
                 .accessibilityLabel("\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-            Button { move(7) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48) }
-                .accessibilityLabel("Next week")
+            Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48) }
+                .help("Next day")
+                .accessibilityLabel("Next day")
         }
         .buttonStyle(.plain)
         .padding(.horizontal, Space.s)
@@ -355,18 +353,13 @@ struct DayEntryRow: View {
 
     var body: some View {
         if confirmingDelete {
-            HStack {
-                Label("Delete \(TimeInterval(entry.minutes * 60).hoursMinutes) from Teamwork?", systemImage: "trash")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel") { confirmingDelete = false }.keyboardShortcut(.cancelAction)
-                Button("Delete", role: .destructive) {
-                    confirmingDelete = false
-                    Task { await store.deleteEntry(entry) }
-                }
+            let title = entry.taskId.flatMap(store.taskName) ?? entry.projectId.map(store.projectName) ?? "Time entry"
+            ConfirmRow(question: "Delete this entry from Teamwork?",
+                       detail: "\(title) · \(TimeInterval(entry.minutes * 60).hoursMinutes)",
+                       action: "Delete", cancel: { confirmingDelete = false }) {
+                confirmingDelete = false
+                Task { await store.deleteEntry(entry) }
             }
-            .padding(.horizontal, Space.l)
-            .padding(.vertical, Space.m)
         } else {
             row
         }

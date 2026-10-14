@@ -36,6 +36,15 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
 
+    func reset() {
+        lastTracked = .now
+        snoozedUntil = .distantPast
+        alerted = []
+        nudgedDay = nil
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+    }
+
     /// Runs after each poll.
     func check(now: Date = .now) {
         guard let store, store.isSignedIn else { return }

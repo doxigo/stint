@@ -11,7 +11,10 @@ final class IdleMonitor {
 
     private weak var store: Store?
     private var idleSince: Date?
+    private var idleTimerID: Int?
+    private var idleSession: UUID?
     private var sleptAt: Date?
+    private var sleptSession: UUID?
     private var prompting = false
 
     init(store: Store) {
@@ -25,6 +28,7 @@ final class IdleMonitor {
         Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
                 self?.sleptAt = .now
+                self?.sleptSession = self?.store?.sessionID
             }
         }
         Task { [weak self] in
@@ -34,8 +38,16 @@ final class IdleMonitor {
         }
     }
 
+    func reset() {
+        idleSince = nil
+        idleTimerID = nil
+        idleSession = nil
+        sleptAt = nil
+        sleptSession = nil
+    }
+
     private func tick() {
-        guard Self.enabled, store?.runningTimer != nil else { idleSince = nil; return }
+        guard Self.enabled, let store else { reset(); return }
         guard !prompting else { return }
         let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: Self.anyInput)
         let lastInput = Date.now.addingTimeInterval(-idle)
@@ -43,31 +55,46 @@ final class IdleMonitor {
             // Any input after the idle period began means you're back, even if you're reading right now.
             if lastInput > since.addingTimeInterval(1) {
                 idleSince = nil
-                prompt(from: since, to: lastInput)
+                if idleSession == store.sessionID, let id = idleTimerID,
+                   let timer = store.timers.first(where: { $0.id == id }) {
+                    prompt(timer, from: since, to: lastInput, session: store.sessionID)
+                }
             }
-        } else if idle >= Self.threshold {
+        } else if idle >= Self.threshold, let timer = store.runningTimer {
             idleSince = lastInput
+            idleTimerID = timer.id
+            idleSession = store.sessionID
         }
     }
 
     private func woke() {
         let slept = sleptAt
+        let session = sleptSession
         sleptAt = nil
-        guard Self.enabled, !prompting, let slept, Date.now.timeIntervalSince(slept) >= Self.threshold else { return }
+        sleptSession = nil
+        guard Self.enabled, !prompting, let store, let slept, let session, session == store.sessionID,
+              Date.now.timeIntervalSince(slept) >= Self.threshold else { return }
         let since = min(slept, idleSince ?? slept)
         idleSince = nil
+        prompting = true
         // Timers may have changed elsewhere while asleep; ask about the current state.
         Task {
-            await store?.refresh()
-            prompt(from: since, to: .now)
+            defer { prompting = false; idleSince = nil }
+            await store.refresh()
+            guard store.sessionID == session else { return }
+            let end = Date.now
+            for timer in store.timers where timer.trackedTime(from: since, to: end) > 0 {
+                prompt(timer, from: since, to: end, session: session)
+            }
         }
     }
 
-    private func prompt(from since: Date, to end: Date) {
-        guard let store, let timer = store.runningTimer else { return }
+    private func prompt(_ timer: TWTimer, from since: Date, to end: Date, session: UUID) {
+        guard let store, store.sessionID == session else { return }
         prompting = true
         defer { prompting = false }
-        let seconds = end.timeIntervalSince(since)
+        let seconds = timer.trackedTime(from: since, to: end)
+        guard seconds > 0 else { return }
 
         let alert = NSAlert()
         alert.messageText = "You were away for \(seconds.spoken)"
@@ -77,8 +104,8 @@ final class IdleMonitor {
         alert.addButton(withTitle: "Keep Time").keyEquivalent = "\u{1b}"
         NSApp.activate()
         switch alert.runModal() {
-        case .alertFirstButtonReturn: Task { await store.removeIdle(seconds, from: timer, stop: false) }
-        case .alertSecondButtonReturn: Task { await store.removeIdle(seconds, from: timer, stop: true) }
+        case .alertFirstButtonReturn: Task { await store.removeIdle(from: since, to: end, timer: timer, session: session, stop: false) }
+        case .alertSecondButtonReturn: Task { await store.removeIdle(from: since, to: end, timer: timer, session: session, stop: true) }
         default: break
         }
     }

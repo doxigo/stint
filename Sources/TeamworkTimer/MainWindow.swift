@@ -20,7 +20,7 @@ struct MainWindow: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter() }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 240) // room for the footer's site name
         } detail: {
             Group {
                 let section = store.section ?? .timers
@@ -50,14 +50,7 @@ struct MainWindow: View {
             }
             .frame(minWidth: 420)
             .safeAreaInset(edge: .bottom) {
-                if let error = store.errorMessage {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(.bar)
-                }
+                ErrorBanner().background(.bar)
             }
         }
         .toolbar {
@@ -70,8 +63,7 @@ struct MainWindow: View {
         .sheet(isPresented: $store.showingNewTimer) { NewTimerSheet() }
         .sheet(isPresented: $store.showingLogAll) {
             LogAllView { store.showingLogAll = false }
-                .padding(20)
-                .frame(width: 460)
+                .frame(width: 460) // no padding: the header band runs edge to edge, as in every sheet
         }
         // Drop a Teamwork task link anywhere in the window to start a timer on it.
         .dropDestination(for: URL.self) { urls, _ in
@@ -523,7 +515,8 @@ struct MyTasksView: View {
                 .pickerStyle(.segmented)
             }
         }
-        .task(id: filter) {
+        // Also once the user ID arrives: right after launch or sign-in it can still be loading.
+        .task(id: "\(filter)|\(store.userId ?? 0)") {
             loading = true
             if let fetched = await store.myTasks(filter) { items = fetched }
             loading = false

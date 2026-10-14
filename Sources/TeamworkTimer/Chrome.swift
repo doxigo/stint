@@ -58,6 +58,7 @@ struct ActionBar<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            ErrorBanner()
             Divider()
             HStack(spacing: Space.s) { content }
                 .buttonStyle(.bordered)
@@ -65,6 +66,61 @@ struct ActionBar<Content: View>: View {
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.m)
         }
+    }
+}
+
+struct ErrorBanner: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        if let error = store.errorMessage {
+            HStack(alignment: .top) {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { store.errorMessage = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss error")
+            }
+            .foregroundStyle(.red)
+            .padding(.horizontal, Space.l)
+            .padding(.vertical, Space.s)
+        }
+    }
+}
+
+/// Confirms a destructive action in place of the row it affects. Inline rather than a dialog: dialogs
+/// attached to the menu-bar window can close it and lose the action. The row's title stays visible.
+struct ConfirmRow: View {
+    let question: String
+    let detail: String
+    let action: String
+    let cancel: () -> Void
+    let confirm: () -> Void
+
+    var body: some View {
+        HStack(spacing: Space.m) {
+            Image(systemName: "trash")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.red)
+                .frame(width: 32, height: 32)
+                .background(.red.opacity(0.12), in: .circle)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(question).fontWeight(.semibold)
+                Text(detail).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Cancel", action: cancel)
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+            Button(action, role: .destructive, action: confirm)
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.vertical, Space.m)
+        .background(.red.opacity(0.05))
+        .accessibilityElement(children: .contain)
     }
 }
 

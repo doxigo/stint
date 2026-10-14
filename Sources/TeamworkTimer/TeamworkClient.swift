@@ -43,7 +43,7 @@ actor TeamworkClient {
     // MARK: Timers
 
     func timers() async throws -> TimersResponse {
-        try await get(TimersResponse.self, "projects/api/v3/me/timers.json",
+        try await getPages(TimersResponse.self, "projects/api/v3/me/timers.json",
                       [.init(name: "include", value: "projects,tasks"), .init(name: "pageSize", value: "50")])
     }
 
@@ -60,7 +60,10 @@ actor TeamworkClient {
     func resume(_ id: Int) async throws { try await send("PUT", "projects/api/v3/me/timers/\(id)/resume.json") }
     /// Turns the timer into a time entry and deletes it.
     func complete(_ id: Int) async throws { try await send("PUT", "projects/api/v3/me/timers/\(id)/complete.json") }
-    func delete(_ id: Int) async throws { try await send("DELETE", "projects/api/v3/me/timers/\(id).json") }
+    func delete(_ id: Int) async throws {
+        do { try await send("DELETE", "projects/api/v3/me/timers/\(id).json") }
+        catch let error as APIError where error.status == 404 { return }
+    }
 
     /// Sends the whole timer (not just the changed fields) in case the edit endpoint replaces rather than merges.
     /// `target` moves the timer to another project/task; its tracked time stays.
@@ -121,7 +124,7 @@ actor TeamworkClient {
     /// The user's entries between two local calendar days, inclusive.
     func timeEntries(userId: Int, from: Date, to: Date) async throws -> TimeEntriesResponse {
         let day = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
-        return try await get(TimeEntriesResponse.self, "projects/api/v3/time.json", [
+        return try await getPages(TimeEntriesResponse.self, "projects/api/v3/time.json", [
             .init(name: "startDate", value: from.formatted(day)), .init(name: "endDate", value: to.formatted(day)),
             .init(name: "assignedToUserIds", value: String(userId)), .init(name: "include", value: "projects,tasks"),
             .init(name: "orderBy", value: "date"), .init(name: "orderMode", value: "desc"),
@@ -144,7 +147,7 @@ actor TeamworkClient {
     // MARK: Projects & tasks
 
     func starredProjects() async throws -> [Project] {
-        try await get(ProjectsResponse.self, "projects/api/v3/projects.json", [
+        try await getPages(ProjectsResponse.self, "projects/api/v3/projects.json", [
             .init(name: "onlyStarredProjects", value: "true"), .init(name: "orderBy", value: "name"),
             .init(name: "pageSize", value: "100"),
         ]).projects
@@ -167,7 +170,7 @@ actor TeamworkClient {
 
     private func tasks(_ filters: [URLQueryItem], projectId: Int?, projectName: String?) async throws -> [WorkItem] {
         let items = filters + [.init(name: "include", value: "projects,tasklists"), .init(name: "pageSize", value: "50")]
-        let page = try await get(TasksResponse.self, "projects/api/v3/tasks.json", items)
+        let page = try await getPages(TasksResponse.self, "projects/api/v3/tasks.json", items)
         return page.tasks.compactMap { task in
             let listProject = task.tasklistId.flatMap { page.included.tasklists[String($0)]?.projectId }
             guard let pid = task.projectId ?? listProject ?? projectId else { return nil }
@@ -186,8 +189,25 @@ actor TeamworkClient {
         try decoder.decode(T.self, from: try await send("GET", path, query: query))
     }
 
+    private func getPages<T: PaginatedResponse>(_ type: T.Type, _ path: String, _ query: [URLQueryItem]) async throws -> T {
+        var result = try await get(type, path, query + [.init(name: "page", value: "1")])
+        var more = result.meta?.page.hasMore ?? false
+        var page = 1
+        while more {
+            page += 1
+            let next = try await get(type, path, query + [.init(name: "page", value: String(page))])
+            guard next.itemCount > 0 else { throw SignInError("Teamwork returned an empty page before the list was complete.") }
+            let count = result.itemCount
+            result.append(next)
+            more = next.meta?.page.hasMore ?? false
+            guard !more || result.itemCount > count else { throw SignInError("Teamwork repeated a page before the list was complete.") }
+        }
+        return result
+    }
+
     @discardableResult
     private func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Data {
+        try Task.checkCancellation()
         var components = URLComponents(url: credentials.site.appending(path: path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty {
             components.queryItems = query
@@ -213,43 +233,78 @@ actor TeamworkClient {
 
 // MARK: Responses
 
-struct TimersResponse: Decodable, Sendable {
-    let timers: [TWTimer]
-    let included: Included
+struct ResponseMeta: Decodable, Sendable {
+    struct Page: Decodable, Sendable { let hasMore: Bool }
+    let page: Page
+}
 
-    private enum CodingKeys: String, CodingKey { case timers, included }
+private protocol PaginatedResponse: Decodable {
+    var meta: ResponseMeta? { get }
+    var itemCount: Int { get }
+    mutating func append(_ page: Self)
+}
+
+private extension Array where Element: Identifiable {
+    mutating func appendNew(_ items: [Element]) {
+        var seen = Set(map(\.id))
+        append(contentsOf: items.filter { seen.insert($0.id).inserted })
+    }
+}
+
+struct TimersResponse: Decodable, Sendable, PaginatedResponse {
+    var timers: [TWTimer]
+    var included: Included
+    var meta: ResponseMeta?
+    var itemCount: Int { timers.count }
+    mutating func append(_ page: Self) { timers.appendNew(page.timers); included.merge(page.included); meta = page.meta }
+
+    private enum CodingKeys: String, CodingKey { case timers, included, meta }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         timers = try c.decode([TWTimer].self, forKey: .timers)
+        meta = try c.decodeIfPresent(ResponseMeta.self, forKey: .meta)
         included = (try? c.decode(Included.self, forKey: .included)) ?? Included()
     }
 }
 
-struct ProjectsResponse: Decodable, Sendable { let projects: [Project] }
+struct ProjectsResponse: Decodable, Sendable, PaginatedResponse {
+    var projects: [Project]
+    var meta: ResponseMeta?
+    var itemCount: Int { projects.count }
+    mutating func append(_ page: Self) { projects.appendNew(page.projects); meta = page.meta }
+}
 
-struct TasksResponse: Decodable, Sendable {
-    let tasks: [TWTask]
-    let included: Included
+struct TasksResponse: Decodable, Sendable, PaginatedResponse {
+    var tasks: [TWTask]
+    var included: Included
+    var meta: ResponseMeta?
+    var itemCount: Int { tasks.count }
+    mutating func append(_ page: Self) { tasks.appendNew(page.tasks); included.merge(page.included); meta = page.meta }
 
-    private enum CodingKeys: String, CodingKey { case tasks, included }
+    private enum CodingKeys: String, CodingKey { case tasks, included, meta }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         tasks = try c.decode([TWTask].self, forKey: .tasks)
+        meta = try c.decodeIfPresent(ResponseMeta.self, forKey: .meta)
         included = (try? c.decode(Included.self, forKey: .included)) ?? Included()
     }
 }
 
-struct TimeEntriesResponse: Decodable, Sendable {
-    let timelogs: [TimeEntry]
-    let included: Included
+struct TimeEntriesResponse: Decodable, Sendable, PaginatedResponse {
+    var timelogs: [TimeEntry]
+    var included: Included
+    var meta: ResponseMeta?
+    var itemCount: Int { timelogs.count }
+    mutating func append(_ page: Self) { timelogs.appendNew(page.timelogs); included.merge(page.included); meta = page.meta }
 
-    private enum CodingKeys: String, CodingKey { case timelogs, included }
+    private enum CodingKeys: String, CodingKey { case timelogs, included, meta }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         timelogs = try c.decode([TimeEntry].self, forKey: .timelogs)
+        meta = try c.decodeIfPresent(ResponseMeta.self, forKey: .meta)
         included = (try? c.decode(Included.self, forKey: .included)) ?? Included()
     }
 }

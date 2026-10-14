@@ -2,6 +2,17 @@
 # Builds "build/Teamwork Timer.app" without Xcode.
 set -eu
 cd "$(dirname "$0")"
+if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    case "$SIGNING_IDENTITY" in
+        "Developer ID Application:"*) ;;
+        *) echo "Public builds require a Developer ID Application identity." >&2; exit 1 ;;
+    esac
+    : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a notarytool Keychain profile}"
+fi
+if [ -n "${CI:-}" ] && [ -z "${SIGNING_IDENTITY:-}" ]; then
+    echo "CI app bundles require SIGNING_IDENTITY and NOTARY_PROFILE. No unsigned release was produced." >&2
+    exit 1
+fi
 # Command Line Tools only: pin the macOS 26 SDK, because the CLT's macOS 27 SwiftUI needs Xcode's macro
 # plugins. With Xcode selected (CI), its own SDK is used.
 clt_sdk=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
@@ -18,10 +29,20 @@ cp Resources/AppIcon.icns "$app/Contents/Resources/"
 # Sign with a stable local identity, not ad hoc: an ad-hoc signature changes every build, and macOS then
 # treats each build as a new app (Keychain sign-in unreadable, notification permission lost).
 # The self-signed identity lives in its own keychain under .signing/ and never touches the login keychain.
-if [ -n "${CI:-}" ]; then
-    # CI starts fresh every run, so a self-signed identity would be new each time anyway: ad hoc is equivalent.
-    codesign --force --sign - "$app"
-    echo "$app"
+if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
+    codesign --verify --deep --strict "$app"
+    archive="build/TeamworkTimer.zip"
+    ditto -c -k --keepParent "$app" "$archive"
+    if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
+        xcrun notarytool submit "$archive" --keychain-profile "$NOTARY_PROFILE" --keychain "$NOTARY_KEYCHAIN" --wait
+    else
+        xcrun notarytool submit "$archive" --keychain-profile "$NOTARY_PROFILE" --wait
+    fi
+    xcrun stapler staple "$app"
+    xcrun stapler validate "$app"
+    ditto -c -k --keepParent "$app" "$archive"
+    echo "$archive"
     exit 0
 fi
 keychain="$PWD/.signing/dev.keychain-db"

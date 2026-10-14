@@ -64,6 +64,17 @@ struct TWTimer: Decodable, Identifiable, Equatable, Sendable {
         return finished + (current.map { max(0, now.timeIntervalSince($0)) } ?? 0)
     }
 
+    func trackedTime(from start: Date, to end: Date) -> TimeInterval {
+        guard end > start else { return 0 }
+        let current = running ? lastStartedAt : nil
+        let finished = intervals.reduce(0.0) { sum, run in
+            guard let to = run.to, current.map({ run.from < $0.addingTimeInterval(-1) }) ?? true else { return sum }
+            return sum + max(0, min(to, end).timeIntervalSince(max(run.from, start)))
+        }
+        let active = current.map { max(0, end.timeIntervalSince(max($0, start))) } ?? 0
+        return min(elapsed(at: end), finished + active)
+    }
+
     /// When the timer first started; this is the start time a time entry should carry.
     var startedAt: Date? { intervals.map(\.from).min() ?? lastStartedAt }
 
@@ -155,6 +166,12 @@ struct Included: Decodable, Sendable {
 
     init() {}
 
+    mutating func merge(_ other: Included) {
+        projects.merge(other.projects) { _, new in new }
+        tasks.merge(other.tasks) { _, new in new }
+        tasklists.merge(other.tasklists) { _, new in new }
+    }
+
     private enum CodingKeys: String, CodingKey { case projects, tasks, tasklists }
 
     init(from decoder: any Decoder) throws {
@@ -231,11 +248,28 @@ func weekdays(in interval: DateInterval, calendar: Calendar = .current) -> Int {
 }
 
 /// Query items of the browser's loopback request, e.g. "GET /?code=abc HTTP/1.1" → ["code": "abc"].
-func callbackQuery(fromRequest request: String) -> [String: String] {
+func oauthRedirect(_ input: String) -> URL? {
+    guard let url = URL(string: input), url.scheme == "http",
+          ["localhost", "127.0.0.1", "::1", "[::1]"].contains(url.host?.lowercased() ?? ""),
+          let port = url.port, (1...65535).contains(port),
+          url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
+    return url
+}
+
+func callbackQuery(fromRequest request: String, redirect: URL, state: String) -> [String: String] {
+    guard request.contains("\r\n\r\n") else { return [:] }
     let requestLine = request.components(separatedBy: "\r\n").first ?? ""
     let parts = requestLine.split(separator: " ")
-    guard parts.count >= 2, let url = URLComponents(string: "http://localhost" + parts[1]) else { return [:] }
-    return Dictionary((url.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
+    guard parts.count == 3, parts[0] == "GET", parts[2] == "HTTP/1.1" || parts[2] == "HTTP/1.0",
+          parts[1].hasPrefix("/"), !parts[1].hasPrefix("//"),
+          let url = URLComponents(string: "http://localhost" + parts[1]),
+          url.path == (redirect.path.isEmpty ? "/" : redirect.path) else { return [:] }
+    let items = url.queryItems ?? []
+    guard Set(items.map(\.name)).count == items.count else { return [:] }
+    let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+    guard query["state"] == state,
+          (query["code"]?.isEmpty == false) != (query["error"]?.isEmpty == false) else { return [:] }
+    return query
 }
 
 /// Automatic rounding of logged time (Settings › General › Time Logs).

@@ -129,11 +129,41 @@ check(normalizedSite("acme.teamwork.com") == URL(string: "https://acme.teamwork.
 check(normalizedSite(" https://acme.eu.teamwork.com/app/home ") == URL(string: "https://acme.eu.teamwork.com/"), "site: pasted URL")
 check(normalizedSite("teamwork.example.com") == URL(string: "https://teamwork.example.com/"), "site: custom domain")
 check(normalizedSite("acme") == nil, "site: rejects junk")
-check(callbackQuery(fromRequest: "GET /?code=abc123 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")["code"] == "abc123", "oauth code")
-check(callbackQuery(fromRequest: "GET /?error=access_denied HTTP/1.1\r\n")["error"] == "access_denied", "oauth error")
-check(callbackQuery(fromRequest: "GET /favicon.ico HTTP/1.1\r\n").isEmpty, "oauth ignores favicon")
+let redirect = URL(string: "http://localhost:8123/callback")!
+func callback(_ target: String, method: String = "GET") -> [String: String] {
+    callbackQuery(fromRequest: "\(method) \(target) HTTP/1.1\r\nHost: localhost:8123\r\n\r\n", redirect: redirect, state: "expected")
+}
+check(callback("/callback?code=abc123&state=expected")["code"] == "abc123", "oauth verified code")
+check(callback("/callback?error=access_denied&state=expected")["error"] == "access_denied", "oauth verified error")
+for bad in ["/callback?code=abc", "/callback?code=abc&state=wrong", "/wrong?code=abc&state=expected",
+            "/callback?code=abc&state=expected&state=wrong", "/callback?code=abc&error=denied&state=expected",
+            "/callback?code=&state=expected", "/favicon.ico"] {
+    check(callback(bad).isEmpty, "reject oauth callback \(bad)")
+}
+check(callback("/callback?code=abc&state=expected", method: "POST").isEmpty, "oauth rejects wrong method")
+check(callbackQuery(fromRequest: "GET /callback?code=abc&state=expected HTTP/1.1\r\n", redirect: redirect, state: "expected").isEmpty, "oauth waits for complete headers")
+for good in ["http://localhost:8123", "http://127.0.0.1:1/callback", "http://[::1]:65535/callback"] {
+    check(oauthRedirect(good) != nil, "valid redirect \(good)")
+}
+for bad in ["http://localhost:0", "http://localhost:65536", "http://localhost", "https://localhost:8123",
+            "http://evil.example:8123", "http://user@localhost:8123", "http://localhost:8123?x=1"] {
+    check(oauthRedirect(bad) == nil, "invalid redirect \(bad)")
+}
+let stateOne = try Launchpad.makeState(), stateTwo = try Launchpad.makeState()
+check(stateOne != stateTwo && Data(base64Encoded: stateOne)?.count == 32, "oauth uses random 256-bit state")
+check(URLComponents(url: Launchpad.loginURL(clientID: "client", redirect: redirect, state: stateOne), resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "state", value: stateOne)) == true, "oauth sends state")
+check(Launchpad.loginURL(clientID: "client", redirect: redirect, state: "a+b").absoluteString.contains("state=a%2Bb"), "oauth encodes plus in state")
+do { try Keychain.check(-25308); check(false, "Keychain propagates errors") } catch {}
+try Keychain.check(0)
+let overlap = TWTimer(id: 8, running: true, duration: 0, lastStartedAt: current, intervals: runs)
+check(overlap.trackedTime(from: t0.addingTimeInterval(30), to: t0.addingTimeInterval(530)) == 180, "idle overlaps finished and running intervals")
+check(overlap.trackedTime(from: t0.addingTimeInterval(70), to: t0.addingTimeInterval(190)) == 0, "idle excludes paused time")
+check(overlap.trackedTime(from: t0.addingTimeInterval(-1000), to: t0.addingTimeInterval(-1)) == 0, "idle excludes time before timer")
 check(Credentials(kind: .apiToken, site: URL(string: "https://a.teamwork.com/")!, secret: "tok").authorization
       == "Basic " + Data("tok:x".utf8).base64EncodedString(), "basic auth header")
 
+let badge = MenuBarBadge.image(running: true, time: "1:30")
+check(MenuBarBadge.image(running: true, time: "1:30") === badge, "menu badge reuses unchanged image")
+check(MenuBarBadge.image(running: false, time: "1:30") !== badge, "menu badge redraws changed state")
 print(failed == 0 ? "All checks passed." : "\(failed) check(s) failed.")
 exit(failed == 0 ? 0 : 1)

@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import CryptoKit
 import SwiftUI // IndexSet-based `move(fromOffsets:toOffset:)`
 
 /// App state. Teamwork is the source of truth for timers and time entries; pins, recents and idle
@@ -69,26 +70,40 @@ final class Store {
     private var taskNames: [Int: String] = [:]
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored let reminders = Reminders()
+    private(set) var sessionID = UUID()
+    enum LogStatus: String, Codable { case uncertain, posted }
+    private(set) var logAttempts: [Int: LogStatus] = [:]
+    private var accountReady = false
+    private var loggingTimers: Set<Int> = []
+    @ObservationIgnored private var completedTimers: Set<Int> = []
+    @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let logDirectory: URL
+    private var accountKey: String? {
+        guard let site, let userId else { return nil }
+        return "account.\(site.absoluteString).\(userId)"
+    }
+    private var logFile: URL? {
+        accountKey.map { logDirectory.appending(path: SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() + ".json") }
+    }
     @ObservationIgnored private var idle: IdleMonitor?
 
     var isSignedIn: Bool { client != nil }
     var activeTimer: TWTimer? { timers.first(where: \.running) ?? timers.first }
     var runningTimer: TWTimer? { timers.first(where: \.running) }
 
-    init() {
-        pins = Self.load("pins") ?? []
-        recents = Self.load("recents") ?? []
-        adjustments = Self.load("adjustments") ?? [:]
+    init(defaults: UserDefaults = .standard,
+         logDirectory: URL = URL.applicationSupportDirectory.appending(path: "com.doxigo.TeamworkTimer/LogAttempts")) {
+        self.defaults = defaults
+        self.logDirectory = logDirectory
         reminders.store = self
         idle = IdleMonitor(store: self)
-        if let data = Keychain.get("credentials"), let credentials = try? JSONDecoder().decode(Credentials.self, from: data) {
-            activate(credentials)
-            Task {
-                if let me = try? await client?.me() { (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength) }
-                await loadStarred()
+        do {
+            if let data = try Keychain.get("credentials") {
+                activate(try JSONDecoder().decode(Credentials.self, from: data))
+                Task { await loadStarred() }
             }
-        }
-        // Timers started elsewhere keep running while the Mac sleeps; catch up on wake.
+        } catch { errorMessage = error.localizedDescription }
         Task {
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 await refresh()
@@ -105,30 +120,60 @@ final class Store {
     }
 
     func signInWithOAuth(clientID: String, clientSecret: String, redirect: String) async throws {
-        guard let redirect = URL(string: redirect), redirect.port != nil else {
-            throw SignInError("Enter a redirect URI with a port, e.g. http://localhost:8123")
+        guard let redirect = oauthRedirect(redirect) else {
+            throw SignInError("Use an HTTP loopback redirect with a port from 1 to 65535, e.g. http://localhost:8123")
         }
-        async let code = LoopbackServer.waitForCode(on: redirect)
-        NSWorkspace.shared.open(Launchpad.loginURL(clientID: clientID, redirect: redirect))
+        let state = try Launchpad.makeState()
+        async let code = LoopbackServer.waitForCode(on: redirect, state: state)
+        guard NSWorkspace.shared.open(Launchpad.loginURL(clientID: clientID, redirect: redirect, state: state)) else {
+            throw SignInError("The sign-in page could not be opened.")
+        }
         let credentials = try await Launchpad.exchange(code: try await code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
-        Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret")
+        try Task.checkCancellation()
+        try Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret")
         NSApp.activate()
         try await connect(credentials)
     }
 
-    static var savedOAuthSecret: String? { Keychain.get("oauthClientSecret").map { String(decoding: $0, as: UTF8.self) } }
+    static func savedOAuthSecret() throws -> String? {
+        try Keychain.get("oauthClientSecret").map { String(decoding: $0, as: UTF8.self) }
+    }
 
-    func signOut() {
+    func signOut() throws {
+        try Keychain.set(nil, for: "credentials")
+        clearSession()
+    }
+
+    private func clearSession() {
         poller?.cancel()
-        Keychain.set(nil, for: "credentials")
+        for cancel in requests.values { cancel() }
+        requests = [:]
+        sessionID = UUID()
         client = nil
         site = nil
         accountName = nil
         userId = nil
+        dayTarget = nil
         timers = []
         starred = []
+        pins = []
+        recents = []
+        dueToday = []
+        adjustments = [:]
+        projectNames = [:]
+        taskNames = [:]
         weeks = [:]
+        logAttempts = [:]
+        accountReady = false
+        loggingTimers = []
+        completedTimers = []
         loggedToday = 0
+        logRevision = 0
+        showingNewTimer = false
+        showingLogAll = false
+        errorMessage = nil
+        idle?.reset()
+        reminders.reset()
         updateTicker()
     }
 
@@ -149,24 +194,39 @@ final class Store {
     }
 
     private func connect(_ credentials: Credentials) async throws {
+        let session = sessionID
         let me = try await TeamworkClient(credentials: credentials).me()
-        (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength)
-        Keychain.set(try JSONEncoder().encode(credentials), for: "credentials")
+        try Task.checkCancellation()
+        guard sessionID == session else { throw CancellationError() }
+        try Keychain.set(try JSONEncoder().encode(credentials), for: "credentials")
         activate(credentials)
+        try identify(me)
         await loadStarred()
-        // Ask now, in context, rather than when the first 8-hour alert would fire.
         if Reminders.longTimerAlert { await Reminders.requestPermission() }
     }
 
+    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?)) throws {
+        accountReady = false
+        (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength)
+        pins = load("pins") ?? []
+        recents = load("recents") ?? []
+        adjustments = load("adjustments") ?? [:]
+        if let logFile, FileManager.default.fileExists(atPath: logFile.path) {
+            logAttempts = try JSONDecoder().decode([Int: LogStatus].self, from: Data(contentsOf: logFile))
+        }
+        accountReady = true
+    }
+
     private func activate(_ credentials: Credentials) {
+        clearSession()
         client = TeamworkClient(credentials: credentials)
         site = credentials.site
-        poller?.cancel()
         poller = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
                 // This week is ready before the popover first opens (retried until it loads).
                 if self?.weeks.isEmpty == true { await self?.loadWeek(containing: .now) }
+                guard !Task.isCancelled else { return }
                 self?.reminders.check()
                 try? await Task.sleep(for: .seconds(Self.pollSeconds))
             }
@@ -176,31 +236,24 @@ final class Store {
     // MARK: Sync
 
     func refresh() async {
-        await perform { client in
-            // Retried every poll until it works (e.g. "Open at login" before the network is up).
-            if userId == nil {
-                let me = try await client.me()
-                (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength)
-            }
-            let page = try await client.timers()
-            merge(page.included)
-            // Running first, then most recently used, so "resume last" means the last one you used.
-            timers = page.timers.sorted { ($0.running ? 1 : 0, $0.lastActive) > ($1.running ? 1 : 0, $1.lastActive) }
-            updateTicker()
-            // A timer started on the web becomes a recent too.
-            if let running = runningTimer, let item = workItem(for: running) { remember(item) }
-            // Forget adjustments for timers that are gone (logged or deleted elsewhere).
-            let live = Set(timers.map(\.id))
-            if adjustments.keys.contains(where: { !live.contains($0) }) {
-                adjustments = adjustments.filter { live.contains($0.key) }
-                Self.save(adjustments, "adjustments")
-            }
-            errorMessage = nil
+        if !accountReady {
+            guard let me = await perform({ try await $0.me() }) else { return }
+            do { try identify(me) } catch { errorMessage = error.localizedDescription; return }
+        }
+        guard let page = await perform({ try await $0.timers() }) else { return }
+        merge(page.included)
+        timers = page.timers.sorted { ($0.running ? 1 : 0, $0.lastActive) > ($1.running ? 1 : 0, $1.lastActive) }
+        updateTicker()
+        if let running = runningTimer, let item = workItem(for: running) { remember(item) }
+        let live = Set(timers.map(\.id))
+        if adjustments.keys.contains(where: { !live.contains($0) }) {
+            adjustments = adjustments.filter { live.contains($0.key) }
+            save(adjustments, "adjustments")
         }
     }
 
     func loadStarred() async {
-        await perform { starred = try await $0.starredProjects() }
+        if let projects = await perform({ try await $0.starredProjects() }) { starred = projects }
     }
 
     func refreshToday() async {
@@ -228,28 +281,20 @@ final class Store {
 
     /// nil when Teamwork couldn't be reached, so callers keep what they had.
     func timeEntries(from: Date, to: Date) async -> [TimeEntry]? {
-        guard let userId else { return nil }
-        var entries: [TimeEntry]?
-        await perform { client in
-            let page = try await client.timeEntries(userId: userId, from: from, to: to)
-            merge(page.included)
-            entries = page.timelogs
-        }
-        return entries
+        guard let userId, let page = await perform({ try await $0.timeEntries(userId: userId, from: from, to: to) }) else { return nil }
+        merge(page.included)
+        return page.timelogs
     }
 
-    /// nil when Teamwork couldn't be reached, so callers keep what they had.
     func myTasks(_ filter: TeamworkClient.TaskFilter) async -> [WorkItem]? {
         guard let userId else { return nil }
-        var items: [WorkItem]?
-        await perform { items = try await $0.myTasks(userId: userId, filter: filter) }
-        return items
+        return await perform { try await $0.myTasks(userId: userId, filter: filter) }
     }
 
     // MARK: Timer actions
 
     func start(_ item: WorkItem) async {
-        if await perform({ try await $0.startTimer(item) }) { remember(item) }
+        if await perform({ try await $0.startTimer(item) }) != nil { remember(item) }
         await refresh()
     }
 
@@ -288,43 +333,114 @@ final class Store {
     /// Returns false if Teamwork refused.
     func log(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, description: String, billable: Bool,
              markTaskComplete: Bool) async -> Bool {
-        let direct = durationEdited || markTaskComplete || adjustments[timer.id] != nil
-        var logged = false
-        var cleanupError: String?
-        await perform { client in
-            if !direct {
-                if description != timer.description || billable != timer.billable {
-                    try await client.update(timer, description: description, billable: billable)
-                }
-                try await client.complete(timer.id)
-                logged = true
-            } else {
-                guard let projectId = timer.projectId else { throw SignInError("This timer has no project to log against.") }
-                try await client.logTime(projectId: projectId, taskId: timer.taskId, seconds: seconds,
-                                         start: timer.startedAt ?? .now.addingTimeInterval(-seconds),
-                                         description: description, billable: billable, markTaskComplete: markTaskComplete)
-                // The entry exists now; never report failure past this point, or a retry would log it twice.
-                logged = true
-                do { try await client.delete(timer.id) } catch {
-                    cleanupError = "Logged, but the timer couldn't be removed. Discard it manually. (\(error.localizedDescription))"
-                }
-            }
-        }
+        let session = sessionID
+        let logged = await logTimer(timer, seconds: seconds, durationEdited: durationEdited,
+                                    description: description, billable: billable, markTaskComplete: markTaskComplete)
+        guard sessionID == session else { return false }
         if logged { logRevision += 1 }
         await refresh()
         await refreshToday()
-        if let cleanupError { errorMessage = cleanupError } // after refresh, which clears errors
         return logged
     }
 
-    /// Logs several timers one after another; returns how many were logged.
-    func logAll(_ drafts: [(timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, billable: Bool)]) async -> Int {
-        var logged = 0
-        for draft in drafts where await log(draft.timer, seconds: draft.seconds, durationEdited: draft.durationEdited,
-                                            description: draft.timer.description, billable: draft.billable,
-                                            markTaskComplete: false) {
-            logged += 1
+    func isLogging(_ id: Int) -> Bool { loggingTimers.contains(id) }
+
+    private func logTimer(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, description: String,
+                          billable: Bool, markTaskComplete: Bool) async -> Bool {
+        if completedTimers.contains(timer.id) { return true }
+        guard accountReady else { errorMessage = "Account recovery must finish before logging."; return false }
+        guard loggingTimers.insert(timer.id).inserted else { return false }
+        let session = sessionID
+        defer { if sessionID == session { loggingTimers.remove(timer.id) } }
+        guard timers.contains(where: { $0.id == timer.id }) else {
+            errorMessage = "This timer no longer exists. Refresh before logging."
+            return false
         }
+        if logAttempts[timer.id] == .uncertain {
+            errorMessage = "The previous log may have succeeded. Check Teamwork before retrying."
+            return false
+        }
+        let direct = durationEdited || markTaskComplete || adjustments[timer.id] != nil
+        if logAttempts[timer.id] != .posted {
+            guard seconds.isFinite, seconds >= 60, seconds <= 86400 else {
+                errorMessage = "Enter a duration between one minute and 24 hours."
+                return false
+            }
+            if !direct, description != timer.description || billable != timer.billable {
+                guard await perform({ try await $0.update(timer, description: description, billable: billable) }) != nil else { return false }
+            }
+            guard !direct || timer.projectId != nil else { errorMessage = "This timer has no project to log against."; return false }
+            do { try setLogStatus(.uncertain, for: timer.id) } catch { errorMessage = error.localizedDescription; return false }
+            let posted: Void? = await perform { client in
+                do {
+                    if direct {
+                        try await client.logTime(projectId: timer.projectId!, taskId: timer.taskId, seconds: seconds,
+                                                 start: timer.startedAt ?? .now.addingTimeInterval(-seconds),
+                                                 description: description, billable: billable, markTaskComplete: markTaskComplete)
+                    } else { try await client.complete(timer.id) }
+                } catch {
+                    if self.sessionID == session, let api = error as? APIError, (400..<500).contains(api.status), api.status != 408 {
+                        try self.setLogStatus(nil, for: timer.id)
+                    }
+                    throw error
+                }
+            }
+            guard sessionID == session else { return false }
+            guard posted != nil else { return false }
+            do { try setLogStatus(.posted, for: timer.id) } catch { errorMessage = "Time was logged, but its receipt could not be saved. Check Teamwork before retrying. \(error.localizedDescription)"; return false }
+            if !direct {
+                completedTimers.insert(timer.id)
+                timers.removeAll { $0.id == timer.id }
+                return true
+            }
+        }
+        if await perform({ try await $0.delete(timer.id) }) != nil {
+            completedTimers.insert(timer.id)
+            timers.removeAll { $0.id == timer.id }
+        } else if sessionID == session {
+            errorMessage = "Time is already logged. The timer could not be removed; retrying will only remove it."
+        }
+        return sessionID == session
+    }
+
+    private func setLogStatus(_ status: LogStatus?, for id: Int) throws {
+        guard let logFile else { throw SignInError("The account is not ready for logging.") }
+        var attempts = logAttempts
+        attempts[id] = status
+        try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
+        try JSONEncoder().encode(attempts).write(to: logFile, options: .atomic)
+        logAttempts = attempts
+    }
+
+    func resolveLog(_ timer: TWTimer, entryExists: Bool) async {
+        guard let status = logAttempts[timer.id], status == .uncertain || entryExists,
+              !loggingTimers.contains(timer.id) else { return }
+        if status == .uncertain {
+            do { try setLogStatus(entryExists ? .posted : nil, for: timer.id) }
+            catch { errorMessage = error.localizedDescription; return }
+        }
+        errorMessage = nil
+        if entryExists {
+            _ = await log(timer, seconds: max(60, elapsed(timer)), durationEdited: true,
+                          description: timer.description, billable: timer.billable, markTaskComplete: false)
+        }
+    }
+
+    func logAll(_ drafts: [(timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, billable: Bool)]) async -> Set<Int> {
+        let session = sessionID
+        var logged: Set<Int> = []
+        for draft in drafts {
+            guard sessionID == session, !Task.isCancelled else { break }
+            if await logTimer(draft.timer, seconds: draft.seconds, durationEdited: draft.durationEdited,
+                              description: draft.timer.description, billable: draft.billable, markTaskComplete: false) {
+                logged.insert(draft.timer.id)
+            }
+        }
+        guard sessionID == session else { return [] }
+        if !logged.isEmpty { logRevision += 1 }
+        await refresh()
+        await refreshToday()
         return logged
     }
 
@@ -338,30 +454,28 @@ final class Store {
 
     /// Moves a timer to another project/task and/or edits its notes; the tracked time stays.
     func edit(_ timer: TWTimer, target: WorkItem?, description: String, billable: Bool) async -> Bool {
-        let ok = await perform { try await $0.update(timer, target: target, description: description, billable: billable) }
-        if ok, let target { remember(target) }
+        let ok: Void? = await perform { try await $0.update(timer, target: target, description: description, billable: billable) }
+        if ok != nil, let target { remember(target) }
         await refresh()
-        return ok
+        return ok != nil
     }
 
     func updateEntry(_ entry: TimeEntry, seconds: TimeInterval, start: Date, description: String, billable: Bool) async -> Bool {
-        let ok = await perform { try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable) }
-        if ok { logRevision += 1 }
+        let ok: Void? = await perform { try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable) }
+        if ok != nil { logRevision += 1 }
         await refreshToday()
-        return ok
+        return ok != nil
     }
 
     func deleteEntry(_ entry: TimeEntry) async {
-        if await perform({ try await $0.deleteEntry(entry.id) }) { logRevision += 1 }
+        if await perform({ try await $0.deleteEntry(entry.id) }) != nil { logRevision += 1 }
         await refreshToday()
     }
 
     /// The task a pasted or dropped Teamwork link points to.
     func item(fromLink text: String) async -> WorkItem? {
         guard let id = taskID(fromLink: text) else { return nil }
-        var item: WorkItem?
-        await perform { item = try await $0.task(id) }
-        return item
+        return await perform { try await $0.task(id) } ?? nil
     }
 
     func refreshDueToday() async {
@@ -374,18 +488,19 @@ final class Store {
     }
 
     /// Idle prompt outcome: drop `seconds` from the timer, optionally pausing it.
-    func removeIdle(_ seconds: TimeInterval, from timer: TWTimer, stop: Bool) async {
-        adjustments[timer.id, default: 0] += seconds
-        Self.save(adjustments, "adjustments")
-        if stop && timer.running { await toggle(timer) }
+    func removeIdle(from since: Date, to end: Date, timer: TWTimer, session: UUID, stop: Bool) async {
+        guard sessionID == session, let current = timers.first(where: { $0.id == timer.id }) else { return }
+        let seconds = current.trackedTime(from: since, to: end)
+        adjustments[timer.id, default: 0] += min(seconds, elapsed(current, at: end))
+        save(adjustments, "adjustments")
+        if stop && current.running { await toggle(current) }
     }
 
     // MARK: Projects, tasks, pins
 
     func search(_ query: String, in project: Project?) async -> [WorkItem] {
-        guard let client else { return [] }
         let query = query.trimmingCharacters(in: .whitespaces)
-        do {
+        return await perform { client in
             if let project {
                 let tasks = try await client.tasks(matching: query, projectId: project.id, projectName: project.name)
                 return query.isEmpty ? [WorkItem(project: project)] + tasks : tasks
@@ -394,10 +509,7 @@ final class Store {
             async let projects = client.projects(matching: query)
             async let tasks = client.tasks(matching: query, projectId: nil, projectName: nil)
             return try await projects.map(WorkItem.init(project:)) + tasks
-        } catch {
-            if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
-            return []
-        }
+        } ?? []
     }
 
     func setStarred(_ project: Project, _ isStarred: Bool) async {
@@ -409,12 +521,12 @@ final class Store {
 
     func togglePin(_ item: WorkItem) {
         if isPinned(item) { pins.removeAll { $0.sameTarget(as: item) } } else { pins.append(item) }
-        Self.save(pins, "pins")
+        save(pins, "pins")
     }
 
     func movePins(from source: IndexSet, to destination: Int) {
         pins.move(fromOffsets: source, toOffset: destination)
-        Self.save(pins, "pins")
+        save(pins, "pins")
     }
 
     func workItem(for timer: TWTimer) -> WorkItem? {
@@ -448,7 +560,7 @@ final class Store {
         recents.removeAll { $0.sameTarget(as: item) }
         recents.insert(item, at: 0)
         recents = Array(recents.prefix(5))
-        Self.save(recents, "recents")
+        save(recents, "recents")
     }
 
     private func merge(_ included: Included) {
@@ -458,16 +570,20 @@ final class Store {
 
     // MARK: Helpers
 
-    /// Runs `work`, surfacing errors in `errorMessage`. Returns whether it succeeded.
     @discardableResult
-    private func perform(_ work: (TeamworkClient) async throws -> Void) async -> Bool {
-        guard let client else { return false }
+    private func perform<T: Sendable>(_ work: @escaping @MainActor (TeamworkClient) async throws -> T) async -> T? {
+        guard let client, !Task.isCancelled else { return nil }
+        let id = UUID()
+        let task = Task { try Task.checkCancellation(); return try await work(client) }
+        requests[id] = { task.cancel() }
+        defer { requests[id] = nil }
         do {
-            try await work(client)
-            return true
+            let value = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            guard self.client === client, !Task.isCancelled else { return nil }
+            return value
         } catch {
-            if !Self.isCancellation(error) { errorMessage = error.localizedDescription }
-            return false
+            if self.client === client, !Self.isCancellation(error), !Task.isCancelled { errorMessage = error.localizedDescription }
+            return nil
         }
     }
 
@@ -475,11 +591,13 @@ final class Store {
         error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
-    private static func load<T: Decodable>(_ key: String) -> T? {
-        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+    private func load<T: Decodable>(_ key: String) -> T? {
+        guard let accountKey else { return nil }
+        return defaults.data(forKey: "\(accountKey).\(key)").flatMap { try? JSONDecoder().decode(T.self, from: $0) }
     }
 
-    private static func save(_ value: some Encodable, _ key: String) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(value), forKey: key)
+    private func save(_ value: some Encodable, _ key: String) {
+        guard let accountKey else { return }
+        defaults.set(try? JSONEncoder().encode(value), forKey: "\(accountKey).\(key)")
     }
 }
