@@ -7,8 +7,24 @@ struct MainWindow: View {
     var body: some View {
         @Bindable var store = store
         NavigationSplitView {
-            List(Store.Section.allCases, selection: $store.section) { section in
-                Label(section.rawValue, systemImage: section.symbol)
+            // Our own selection: List(selection:) paints the system accent (blue), which the app can't
+            // change without an Xcode-built asset catalog. ⌘1–⌘6 (View menu) select sections from the keyboard.
+            List(Store.Section.allCases) { section in
+                let selected = (store.section ?? .timers) == section
+                Button { store.section = section } label: {
+                    Label {
+                        Text(section.rawValue).fontWeight(selected ? .semibold : .regular)
+                    } icon: {
+                        Image(systemName: section.symbol).foregroundStyle(Brand.purple)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Space.xs)
+                    .padding(.vertical, Space.xs - 2)
+                    .background(Brand.purple.opacity(selected ? 0.14 : 0), in: .rect(cornerRadius: 8))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
@@ -72,19 +88,27 @@ struct NewTimerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New Timer").font(.title2.bold())
-            WorkPicker { item in
+        VStack(spacing: 0) {
+            ScreenHeader("New Timer") { dismiss() }
+            WorkPicker(maxHeight: 420) { item in
                 dismiss()
                 Task { await store.start(item) }
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-            }
         }
-        .padding(20)
-        .frame(width: 420, height: 480)
+        .frame(width: 440)
+    }
+}
+
+/// A main-window page in the popover's language: full-width rows, inset dividers, small-caps headers
+/// that stay pinned while scrolling.
+struct Page<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) { content }
+                .padding(.bottom, Space.l)
+        }
     }
 }
 
@@ -107,13 +131,13 @@ struct TimerList: View {
     var body: some View {
         ForEach(store.timers) { timer in
             TimerRow(timer: timer, onLog: { sheet = .log(timer) }, onEdit: { sheet = .edit(timer) })
-                .listRowInsets(EdgeInsets()) // the row pads itself and tints edge to edge when running
+            RowDivider()
         }
     }
 }
 
 extension View {
-    /// On the List, not the ForEach: modifiers on a ForEach apply to every row.
+    /// On the page, not the ForEach: modifiers on a ForEach apply to every row.
     func timerSheet(_ sheet: Binding<TimerSheet?>) -> some View {
         self.sheet(item: sheet) { which in
             Group {
@@ -122,8 +146,7 @@ extension View {
                 case .edit(let timer): EditTimerView(timer: timer) { sheet.wrappedValue = nil }
                 }
             }
-            .padding(20)
-            .frame(width: 400)
+            .frame(width: 440)
         }
     }
 }
@@ -133,7 +156,7 @@ struct TimersView: View {
     @State private var sheet: TimerSheet?
 
     var body: some View {
-        List { TimerList(sheet: $sheet) }
+        Page { TimerList(sheet: $sheet) }
             .timerSheet($sheet)
             .overlay {
                 if store.timers.isEmpty {
@@ -154,20 +177,22 @@ struct TimersView: View {
     }
 }
 
-/// Logged time for a day or a week, grouped by day with totals.
+/// Logged time for a day (with the popover's week strip) or a week, grouped by day with totals.
 struct EntriesView: View {
     @Environment(Store.self) private var store
     let span: Calendar.Component
-    @State private var anchor = Date.now
-    @State private var entries: [TimeEntry] = []
+    @State private var anchor = Calendar.current.startOfDay(for: .now)
+    @State private var weekEntries: [TimeEntry] = []
     @State private var loading = false
     @State private var sheet: TimerSheet?
     @State private var editingEntry: TimeEntry?
-    @State private var deletingEntry: TimeEntry?
-    @State private var loadedInterval: DateInterval?
+    @State private var loadedWeek: DateInterval?
 
-    private var interval: DateInterval { Calendar.current.dateInterval(of: span, for: anchor)! }
+    private var calendar: Calendar { .current }
+    private var interval: DateInterval { calendar.dateInterval(of: span, for: anchor)! }
+    private var week: DateInterval { calendar.dateInterval(of: .weekOfYear, for: anchor)! }
     private var isCurrent: Bool { interval.contains(.now) }
+    private var entries: [TimeEntry] { weekEntries.filter { $0.timeLogged.map(interval.contains) ?? false } }
     private var total: TimeInterval { TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60) }
     /// Working-day target × weekdays in view; nil without a target or on a weekend.
     private var target: TimeInterval? {
@@ -177,50 +202,61 @@ struct EntriesView: View {
     }
 
     private var days: [(day: Date, entries: [TimeEntry])] {
-        Dictionary(grouping: entries) { Calendar.current.startOfDay(for: $0.timeLogged ?? interval.start) }
+        Dictionary(grouping: entries) { calendar.startOfDay(for: $0.timeLogged ?? interval.start) }
             .sorted { $0.key > $1.key }
-            .map { ($0.key, $0.value) }
+            .map { ($0.key, $0.value.sorted { ($0.timeLogged ?? .distantPast) < ($1.timeLogged ?? .distantPast) }) }
+    }
+
+    /// Per-day totals for the week strip, today's timers included (as in the popover).
+    private var dayTotals: [Date: TimeInterval] {
+        var totals: [Date: TimeInterval] = [:]
+        for entry in weekEntries {
+            guard let logged = entry.timeLogged else { continue }
+            totals[calendar.startOfDay(for: logged), default: 0] += TimeInterval(entry.minutes * 60)
+        }
+        for timer in store.timers { totals[calendar.startOfDay(for: .now), default: 0] += store.elapsed(timer) }
+        return totals
     }
 
     var body: some View {
-        List {
+        Page {
             if let target { // the numbers are in the subtitle
                 ProgressView(value: min(total / target, 1))
+                    .padding(.horizontal, Space.l)
+                    .padding(.top, Space.m)
                     .accessibilityLabel("Logged")
                     .accessibilityValue("\(total.spoken) of \(target.spoken)")
             }
             if isCurrent && !store.timers.isEmpty {
-                Section("Timers") { TimerList(sheet: $sheet) }
+                Section { TimerList(sheet: $sheet) } header: { SectionHeader("Timers") }
             }
             ForEach(days, id: \.day) { group in
                 Section {
                     ForEach(group.entries) { entry in
-                        EntryRow(entry: entry, onEdit: { editingEntry = entry }, onDelete: { deletingEntry = entry })
+                        DayEntryRow(entry: entry) { editingEntry = entry }
+                        RowDivider()
                     }
                 } header: {
-                    HStack {
-                        Text(group.day.formatted(.dateTime.weekday(.wide).month().day()))
-                        Spacer()
-                        let logged = TimeInterval(group.entries.reduce(0) { $0 + $1.minutes } * 60)
-                        let dayGoal = store.dayTarget.flatMap { weekdays(in: DateInterval(start: group.day, duration: 86_400)) > 0 ? $0 : nil }
-                        Text(dayGoal.map { "\(logged.hoursMinutes) of \($0.hoursMinutes)" } ?? logged.hoursMinutes).monospacedDigit()
-                    }
+                    let logged = TimeInterval(group.entries.reduce(0) { $0 + $1.minutes } * 60)
+                    let goal = store.dayTarget.flatMap { weekdays(in: DateInterval(start: group.day, duration: 86_400)) > 0 ? $0 : nil }
+                    SectionHeader(group.day.formatted(.dateTime.weekday(.wide).month().day()),
+                                  trailing: goal.map { "\(logged.hoursMinutes) / \($0.hoursMinutes)" } ?? logged.hoursMinutes)
                 }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if span == .day {
+                VStack(spacing: 0) {
+                    WeekStrip(week: week, selected: $anchor, totals: dayTotals)
+                    Divider()
+                }
+                .background(.background)
             }
         }
         .timerSheet($sheet)
         .sheet(item: $editingEntry) { entry in
             EditEntryView(entry: entry) { editingEntry = nil }
-                .padding(20)
-                .frame(width: 400)
-        }
-        .confirmationDialog("Delete this time entry?", isPresented: Binding(get: { deletingEntry != nil }, set: { if !$0 { deletingEntry = nil } }),
-                            presenting: deletingEntry) { entry in
-            Button("Delete \(TimeInterval(entry.minutes * 60).hoursMinutes)", role: .destructive) {
-                Task { await store.deleteEntry(entry) }
-            }
-        } message: { _ in
-            Text("It's removed from Teamwork.")
+                .frame(width: 440)
         }
         .overlay {
             if entries.isEmpty && !loading && !(isCurrent && !store.timers.isEmpty) {
@@ -234,7 +270,7 @@ struct EntriesView: View {
                 Button("Previous", systemImage: "chevron.left") { step(-1) }
                     .keyboardShortcut("[")
                     .help(span == .day ? "Previous Day (⌘[)" : "Previous Week (⌘[)")
-                Button("Today") { anchor = .now }
+                Button("Today") { anchor = calendar.startOfDay(for: .now) }
                     .keyboardShortcut("t")
                     .disabled(isCurrent)
                     .help("Go to Today (⌘T)")
@@ -243,10 +279,10 @@ struct EntriesView: View {
                     .help(span == .day ? "Next Day (⌘])" : "Next Week (⌘])")
             }
         }
-        // Reload on navigation and after anything is logged (here or from the popover).
-        .task(id: "\(interval.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
-            if loadedInterval != interval { entries = [] } // never show another day's rows under this title
-            loadedInterval = interval
+        // Reload on week change, after anything is logged (here or from the popover), and once the user ID arrives.
+        .task(id: "\(week.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
+            if loadedWeek != week { weekEntries = [] } // never show another week's rows under this title
+            loadedWeek = week
             await load()
         }
         .refreshable { await load() }
@@ -259,60 +295,15 @@ struct EntriesView: View {
     }
 
     private func step(_ direction: Int) {
-        anchor = Calendar.current.date(byAdding: span, value: direction, to: anchor) ?? anchor
+        anchor = calendar.date(byAdding: span, value: direction, to: anchor) ?? anchor
     }
 
     private func load() async {
         loading = true
-        if let fetched = await store.timeEntries(from: interval.start, to: interval.end.addingTimeInterval(-1)) {
-            entries = fetched
+        if let fetched = await store.timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)) {
+            weekEntries = fetched
         }
         loading = false
-    }
-}
-
-struct EntryRow: View {
-    @Environment(Store.self) private var store
-    let entry: TimeEntry
-    var onEdit: (() -> Void)?
-    var onDelete: (() -> Void)?
-
-    var body: some View {
-        let taskName = entry.taskId.flatMap(store.taskName)
-        let projectName = entry.projectId.map(store.projectName) ?? "No project"
-        let item = entry.projectId.map {
-            WorkItem(projectId: $0, projectName: projectName, taskId: entry.taskId, taskName: taskName,
-                     description: entry.description, billable: entry.billable)
-        }
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(taskName ?? projectName).lineLimit(1)
-                Text([taskName == nil ? nil : projectName, entry.description.isEmpty ? nil : entry.description]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            if entry.locked { Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityLabel("Locked") }
-            if entry.billable { Image(systemName: "dollarsign.circle").foregroundStyle(.secondary).accessibilityLabel("Billable") }
-            Text(TimeInterval(entry.minutes * 60).hoursMinutes).monospacedDigit()
-        }
-        .accessibilityElement(children: .combine)
-        .contextMenu {
-            // Locked entries (approved or invoiced) can't be changed in Teamwork either.
-            if let onEdit { Button("Edit…", action: onEdit).disabled(entry.locked) }
-            if let item {
-                Button("Start Timer Again") { Task { await store.start(item) } }
-                Button(store.isPinned(item) ? "Unpin" : "Pin") { store.togglePin(item) }
-            }
-            if let url = store.webURL(projectId: entry.projectId, taskId: entry.taskId) {
-                Link("Open in Teamwork", destination: url)
-            }
-            if let onDelete {
-                Divider()
-                Button("Delete…", role: .destructive, action: onDelete).disabled(entry.locked)
-            }
-        }
-        .onTapGesture(count: 2) { if !entry.locked { onEdit?() } }
     }
 }
 
@@ -320,11 +311,17 @@ struct PinnedView: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        List {
-            ForEach(store.pins) { item in
+        Page {
+            ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
                 WorkRow(item: item, showsPin: false) { Task { await store.start(item) } }
+                    .draggable(item.id)
+                    .dropDestination(for: String.self) { ids, _ in
+                        guard let from = store.pins.firstIndex(where: { $0.id == ids.first }) else { return false }
+                        store.movePins(from: [from], to: index > from ? index + 1 : index)
+                        return true
+                    }
+                RowDivider()
             }
-            .onMove(perform: store.movePins)
         }
         .overlay {
             if store.pins.isEmpty {
@@ -339,46 +336,69 @@ struct PinnedView: View {
 
 struct StarredView: View {
     @Environment(Store.self) private var store
+    @State private var path: [Project] = []
 
     var body: some View {
-        List(store.starred) { project in
-            DisclosureGroup {
-                ProjectTasks(project: project)
-            } label: {
-                Label(project.name, systemImage: "star.fill")
-                    .contextMenu {
-                        Button("Start Timer on Project") { Task { await store.start(WorkItem(project: project)) } }
-                        Button("Pin Project") { store.togglePin(WorkItem(project: project)) }
-                        Button("Unstar Project") { Task { await store.setStarred(project, false) } }
-                    }
+        NavigationStack(path: $path) {
+            Page {
+                ForEach(store.starred) { project in
+                    ProjectRow(project: project, open: { path.append(project) },
+                               start: { Task { await store.start(WorkItem(project: project)) } })
+                    RowDivider()
+                }
             }
-        }
-        .overlay {
-            if store.starred.isEmpty {
-                ContentUnavailableView("No Starred Projects", systemImage: "star",
-                                       description: Text("Star projects in Teamwork and they appear here and first in every picker."))
+            .overlay {
+                if store.starred.isEmpty {
+                    ContentUnavailableView("No Starred Projects", systemImage: "star",
+                                           description: Text("Star projects in Teamwork and they appear here and first in every picker."))
+                }
             }
+            .navigationTitle("Starred Projects")
+            .navigationDestination(for: Project.self) { ProjectTasks(project: $0) }
         }
-        .navigationTitle("Starred Projects")
         .task { await store.loadStarred() }
     }
 }
 
-/// A project's tasks, loaded when its row is expanded.
+/// A project's tasks, the whole project first; the toolbar field searches them.
 struct ProjectTasks: View {
     @Environment(Store.self) private var store
     let project: Project
+    @State private var query = ""
     @State private var items: [WorkItem]?
 
     var body: some View {
-        Group {
-            if let items {
-                ForEach(items) { item in WorkRow(item: item) { Task { await store.start(item) } } }
-            } else {
-                ProgressView().controlSize(.small)
+        let whole = items?.filter { $0.taskId == nil } ?? []
+        let tasks = items?.filter { $0.taskId != nil } ?? []
+        Page {
+            if !whole.isEmpty {
+                Section { rows(whole) } header: { SectionHeader("Project") }
+            }
+            if !tasks.isEmpty {
+                Section { rows(tasks) } header: { SectionHeader("Tasks") }
             }
         }
-        .task { items = await store.search("", in: project) }
+        .overlay {
+            if items == nil {
+                ProgressView().controlSize(.small)
+            } else if whole.isEmpty && tasks.isEmpty {
+                ContentUnavailableView.search(text: query)
+            }
+        }
+        .navigationTitle(project.name)
+        .searchable(text: $query, prompt: "Search \(project.name)")
+        .task(id: query) {
+            if !query.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
+            guard !Task.isCancelled else { return }
+            items = await store.search(query, in: project)
+        }
+    }
+
+    private func rows(_ items: [WorkItem]) -> some View {
+        ForEach(items) { item in
+            WorkRow(item: item, showsProject: false) { Task { await store.start(item) } }
+            RowDivider()
+        }
     }
 }
 
@@ -389,8 +409,11 @@ struct MyTasksView: View {
     @State private var loading = false
 
     var body: some View {
-        List(items) { item in
-            WorkRow(item: item) { Task { await store.start(item) } }
+        Page {
+            ForEach(items) { item in
+                WorkRow(item: item) { Task { await store.start(item) } }
+                RowDivider()
+            }
         }
         .overlay {
             if items.isEmpty && !loading {

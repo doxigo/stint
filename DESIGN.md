@@ -149,6 +149,8 @@ Both apps are Electron as well. Harvest bundles its React UI. Toggl's window loa
 **Inspector** (trailing): edit project, task, description, billable, tags, duration, date.
 **Toolbar:** primary *New Timer* (+), search, Refresh. The account menu lives in the sidebar footer.
 
+**Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
+
 **Windows:** one main window, the Settings scene, and the Mini Timer (`NSPanel`, non-activating).
 
 ### 3.3 Command map
@@ -311,5 +313,6 @@ open "build/Teamwork Timer.app"
 - **Signing:** `bundle.sh` signs with a self-signed "Teamwork Timer Local Signing" identity, created once in `.signing/` (its own keychain, git-ignored, not in the search list).
   - An ad-hoc signature changes with every build, so macOS treated each build as a new app and the Keychain sign-in became unreadable after every rebuild.
   - The designated requirement is now `identifier com.doxigo.TeamworkTimer + certificate leaf`, which is stable across builds.
+  - **Remaining limit:** Keychain entries also carry a partition list tied to an Apple team ID, so a self-signed build still asks for the login password once after each update. An "allow all applications" access list doesn't change that; this was tested. Signing with an Apple Development certificate via Xcode removes the prompt.
 - `check.sh` stands in for `swift test`. The CLT ship neither XCTest nor the Swift Testing macros, so the checks are plain asserts compiled with `swiftc`.
 - `Checks/fixtures/` are real v3 responses, anonymized.

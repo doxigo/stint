@@ -1,5 +1,78 @@
 import SwiftUI
 
+// Every form is a full screen in the popover's language: header band, task summary, field rows,
+// action bar. The main window shows the same views as sheets.
+
+/// Confirms a log: editable duration ("1:30", "1.5h", "90m") pre-rounded per Settings, description,
+/// billable, mark task complete.
+struct LogView: View {
+    @Environment(Store.self) private var store
+    @AppStorage("rounding") private var rounding = Rounding.off
+    @AppStorage("roundingStep") private var roundingStep = 15
+    let timer: TWTimer
+    let done: () -> Void
+    @State private var duration = ""
+    /// Tracked time when the form opened, before rounding.
+    @State private var exactDuration = ""
+    @State private var description = ""
+    @State private var billable = false
+    @State private var markComplete = false
+    @State private var saving = false
+
+    var body: some View {
+        let seconds = parseDuration(duration)
+        VStack(spacing: 0) {
+            ScreenHeader("Log Time")
+            TaskSummary(title: store.title(of: timer), subtitle: store.subtitle(of: timer),
+                        url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
+            Divider()
+            FieldRow(label: "Duration", note: durationNote(seconds), noteIsError: (seconds ?? 0) < 60) {
+                DurationField(text: $duration)
+            }
+            RowDivider()
+            NotesRow(text: $description)
+            RowDivider()
+            FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
+            if timer.taskId != nil {
+                RowDivider()
+                FieldRow(label: "Mark task complete") {
+                    Toggle("Mark task complete", isOn: $markComplete).labelsHidden().toggleStyle(.switch)
+                }
+            }
+            ActionBar {
+                Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Log \(seconds.map(\.hoursMinutes) ?? "")") {
+                    guard let seconds else { return }
+                    saving = true
+                    Task {
+                        // Unrounded, untouched field → let Teamwork log the live timer time ("complete").
+                        if await store.log(timer, seconds: seconds, durationEdited: duration != exactDuration,
+                                           description: description, billable: billable, markTaskComplete: markComplete) { done() }
+                        saving = false
+                    }
+                }
+                .primaryAction()
+                .disabled(saving || (seconds ?? 0) < 60)
+            }
+        }
+        .onAppear {
+            let tracked = store.elapsed(timer)
+            exactDuration = tracked.hoursMinutes
+            duration = rounding.apply(tracked, step: roundingStep).hoursMinutes
+            description = timer.description
+            billable = timer.billable
+        }
+    }
+
+    private func durationNote(_ seconds: TimeInterval?) -> String? {
+        guard let seconds else { return "Enter a duration like 1:30, 1.5h or 90m." }
+        if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
+        guard duration != exactDuration else { return nil }
+        return "Tracked \(exactDuration)\(rounding != .off ? " · \(rounding.rawValue.lowercased()) to \(roundingStep) min" : "")"
+    }
+}
+
 /// Moves a running or paused timer to another project/task and edits its notes; the tracked time stays.
 struct EditTimerView: View {
     @Environment(Store.self) private var store
@@ -13,31 +86,30 @@ struct EditTimerView: View {
 
     var body: some View {
         let current = target ?? store.workItem(for: timer)
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Edit Timer").font(.title2.bold())
+        VStack(spacing: 0) {
             if choosing {
-                WorkPicker(maxHeight: 260) { item in
+                ScreenHeader("Change Task") { choosing = false }
+                WorkPicker(maxHeight: 360) { item in
                     target = item
                     choosing = false
                 }
-                Button("Back") { choosing = false }
             } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(current?.title ?? store.title(of: timer)).lineLimit(1)
-                        if let subtitle = current?.subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
-                    }
-                    Spacer()
+                ScreenHeader("Edit Timer")
+                TaskSummary(title: current?.title ?? store.title(of: timer), subtitle: current?.subtitle,
+                            url: store.webURL(projectId: current?.projectId ?? timer.projectId,
+                                              taskId: current.map(\.taskId) ?? timer.taskId)) {
                     Button("Change…") { choosing = true }
+                        .help("Move this timer to another task or project")
                 }
-                LabeledContent("Tracked") { TimerText(timer: timer) }
-                TextField("Description", text: $description, axis: .vertical)
-                    .lineLimit(2...4)
-                    .textFieldStyle(.roundedBorder)
-                Toggle("Billable", isOn: $billable)
-                HStack {
-                    Spacer()
+                Divider()
+                FieldRow(label: "Tracked") { TimerText(timer: timer).foregroundStyle(.secondary) }
+                RowDivider()
+                NotesRow(text: $description)
+                RowDivider()
+                FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
+                ActionBar {
                     Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                    Spacer()
                     Button("Save") {
                         saving = true
                         Task {
@@ -45,8 +117,7 @@ struct EditTimerView: View {
                             saving = false
                         }
                     }
-                    .keyboardShortcut(.defaultAction)
-                    .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
+                    .primaryAction()
                     .disabled(saving)
                 }
             }
@@ -81,44 +152,27 @@ struct LogAllView: View {
         let chosen = drafts.filter(\.included)
         let valid = chosen.allSatisfy { (parseDuration($0.duration) ?? 0) >= 60 }
         let total = chosen.compactMap { parseDuration($0.duration) }.reduce(0, +)
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Log All Timers").font(.title2.bold())
-            ForEach($drafts) { $draft in
-                HStack(spacing: 8) {
-                    Toggle(isOn: $draft.included) {}
-                        .labelsHidden()
-                        .accessibilityLabel("Include \(store.title(of: draft.timer))")
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(store.title(of: draft.timer)).lineLimit(1)
-                        if let subtitle = store.subtitle(of: draft.timer) {
-                            Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
+        VStack(spacing: 0) {
+            ScreenHeader("Log All")
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach($drafts) { $draft in
+                        draftRow($draft)
+                        RowDivider()
                     }
-                    Spacer()
-                    Group {
-                        Button { draft.billable.toggle() } label: {
-                            Image(systemName: draft.billable ? "dollarsign.circle.fill" : "dollarsign.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .help(draft.billable ? "Billable" : "Not billable")
-                        .accessibilityLabel("Billable")
-                        .accessibilityValue(draft.billable ? "On" : "Off")
-                        TextField("Duration", text: $draft.duration)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 64)
-                            .monospacedDigit()
-                            .foregroundStyle((parseDuration(draft.duration) ?? 0) >= 60 ? .primary : Color.red)
-                            .accessibilityLabel("Duration for \(store.title(of: draft.timer))")
+                    if rounding != .off {
+                        Text("\(rounding.rawValue) to \(roundingStep) min. Edit any duration before logging.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Space.l)
+                            .padding(.vertical, Space.s)
                     }
-                    .disabled(!draft.included)
                 }
             }
-            if rounding != .off {
-                Text("\(rounding.rawValue) to \(roundingStep) min. Edit any duration before logging.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HStack {
+            .frame(maxHeight: 420)
+            .fixedSize(horizontal: false, vertical: true)
+            ActionBar {
                 Text("Total \(total.hoursMinutes)").monospacedDigit().foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", action: done).keyboardShortcut(.cancelAction)
@@ -132,18 +186,53 @@ struct LogAllView: View {
                         saving = false
                     }
                 }
-                .keyboardShortcut(.defaultAction)
-                .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
+                .primaryAction()
                 .disabled(saving || chosen.isEmpty || !valid)
             }
         }
-        .onAppear {
-            drafts = store.timers.map { timer in
-                let tracked = store.elapsed(timer)
-                return Draft(timer: timer, exact: tracked.hoursMinutes,
-                             duration: rounding.apply(tracked, step: roundingStep).hoursMinutes, billable: timer.billable)
-            }
+        .onAppear(perform: makeDrafts)
+        // Opened before timers finished loading: fill in once they arrive.
+        .onChange(of: store.timers.count) { if drafts.isEmpty { makeDrafts() } }
+    }
+
+    private func makeDrafts() {
+        drafts = store.timers.map { timer in
+            let tracked = store.elapsed(timer)
+            return Draft(timer: timer, exact: tracked.hoursMinutes,
+                         duration: rounding.apply(tracked, step: roundingStep).hoursMinutes, billable: timer.billable)
         }
+    }
+
+    private func draftRow(_ draft: Binding<Draft>) -> some View {
+        let timer = draft.wrappedValue.timer
+        let title = store.title(of: timer)
+        return HStack(spacing: Space.s) {
+            Toggle(isOn: draft.included) {}
+                .labelsHidden()
+                .accessibilityLabel("Include \(title)")
+            VStack(alignment: .leading, spacing: Space.xxs) {
+                Text(title).fontWeight(.semibold).lineLimit(2)
+                if let subtitle = store.subtitle(of: timer) {
+                    Text(subtitle).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                Button { draft.wrappedValue.billable.toggle() } label: {
+                    Image(systemName: draft.wrappedValue.billable ? "dollarsign.circle.fill" : "dollarsign.circle")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .help(draft.wrappedValue.billable ? "Billable" : "Not billable")
+                .accessibilityLabel("Billable")
+                .accessibilityValue(draft.wrappedValue.billable ? "On" : "Off")
+                DurationField(text: draft.duration)
+                    .accessibilityLabel("Duration for \(title)")
+            }
+            .disabled(!draft.wrappedValue.included)
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.vertical, Space.m)
     }
 }
 
@@ -160,33 +249,29 @@ struct EditEntryView: View {
 
     var body: some View {
         let seconds = parseDuration(duration)
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Edit Time Entry").font(.title2.bold())
-            VStack(alignment: .leading, spacing: 1) {
-                Text(entry.taskId.flatMap(store.taskName) ?? entry.projectId.map(store.projectName) ?? "Time entry")
-                if entry.taskId != nil, let projectId = entry.projectId {
-                    Text(store.projectName(projectId)).font(.caption).foregroundStyle(.secondary)
-                }
+        let task = entry.taskId.flatMap(store.taskName)
+        let project = entry.projectId.map(store.projectName)
+        VStack(spacing: 0) {
+            ScreenHeader("Edit Entry")
+            TaskSummary(title: task ?? project ?? "Time entry", subtitle: task == nil ? nil : project,
+                        url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
+            Divider()
+            FieldRow(label: "Duration",
+                     note: (seconds ?? 0) < 60 ? "Enter at least 1 minute, like 1:30, 1.5h or 90m." : nil,
+                     noteIsError: true) {
+                DurationField(text: $duration)
             }
-            LabeledContent("Duration") {
-                TextField("Duration", text: $duration, prompt: Text("1:30, 1.5h, 90m"))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-                    .monospacedDigit()
+            RowDivider()
+            FieldRow(label: "Start") {
+                DatePicker("Start", selection: $start).labelsHidden()
             }
-            if (seconds ?? 0) < 60 {
-                Label("Enter a duration of at least 1 minute, like 1:30, 1.5h or 90m.", systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            DatePicker("Start", selection: $start)
-            TextField("Description", text: $description, axis: .vertical)
-                .lineLimit(2...4)
-                .textFieldStyle(.roundedBorder)
-            Toggle("Billable", isOn: $billable)
-            HStack {
-                Spacer()
+            RowDivider()
+            NotesRow(text: $description)
+            RowDivider()
+            FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
+            ActionBar {
                 Button("Cancel", action: done).keyboardShortcut(.cancelAction)
+                Spacer()
                 Button("Save") {
                     guard let seconds else { return }
                     saving = true
@@ -197,8 +282,7 @@ struct EditEntryView: View {
                         saving = false
                     }
                 }
-                .keyboardShortcut(.defaultAction)
-                .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
+                .primaryAction()
                 .disabled(saving || (seconds ?? 0) < 60)
             }
         }
@@ -208,5 +292,20 @@ struct EditEntryView: View {
             description = entry.description
             billable = entry.billable
         }
+    }
+}
+
+/// Right-aligned h:mm field with forgiving input ("1:30", "1.5h", "90m").
+struct DurationField: View {
+    @Binding var text: String
+
+    var body: some View {
+        TextField("Duration", text: $text, prompt: Text("1:30"))
+            .multilineTextAlignment(.trailing)
+            .monospacedDigit()
+            .font(.body.weight(.semibold))
+            .frame(width: 72)
+            .filledField()
+            .help("1:30, 1.5h or 90m")
     }
 }

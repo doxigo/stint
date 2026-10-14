@@ -8,7 +8,7 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     enum Screen: Equatable {
-        case day, newTimer, pinned, logAll
+        case day, newTimer, pinned, logAll, summary
         case log(TWTimer), edit(TWTimer), editEntry(TimeEntry)
     }
 
@@ -29,19 +29,28 @@ struct MenuBarView: View {
                 switch screen {
                 case .day: dayScreen
                 case .newTimer:
-                    subscreen("New Timer") {
-                        WorkPicker(maxHeight: 360) { item in start(item) }
+                    VStack(spacing: 0) {
+                        ScreenHeader("New Timer") { screen = .day }
+                        WorkPicker(maxHeight: 420) { item in start(item) }
                     }
+                case .summary:
+                    TimeSummary(back: { screen = .day }, openWeek: {
+                        store.section = .week
+                        showWindow()
+                    })
                 case .pinned:
-                    subscreen("Pinned") { PinnedList { item in start(item) } }
-                case .logAll: LogAllView { screen = .day }.padding(Space.l)
-                case .log(let timer): LogView(timer: timer) { screen = .day }.padding(Space.l)
-                case .edit(let timer): EditTimerView(timer: timer) { screen = .day }.padding(Space.l)
-                case .editEntry(let entry): EditEntryView(entry: entry) { screen = .day }.padding(Space.l)
+                    VStack(spacing: 0) {
+                        ScreenHeader("Pinned") { screen = .day }
+                        PinnedList { item in start(item) }
+                    }
+                case .logAll: LogAllView { screen = .day }
+                case .log(let timer): LogView(timer: timer) { screen = .day }
+                case .edit(let timer): EditTimerView(timer: timer) { screen = .day }
+                case .editEntry(let entry): EditEntryView(entry: entry) { screen = .day }
                 }
             }
         }
-        .frame(width: 440)
+        .frame(width: 480)
         // Opaque like Harvest: reads cleanly over busy windows, unlike glass behind dense text.
         .background(.background)
         .tint(Brand.purple)
@@ -81,7 +90,6 @@ struct MenuBarView: View {
                     .padding(.horizontal, Space.l)
                     .padding(.vertical, Space.s)
             }
-            Divider()
             bottomBar
         }
         // Day navigation from the keyboard, as in Harvest.
@@ -93,31 +101,20 @@ struct MenuBarView: View {
 
     private var header: some View {
         let title = day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
-        return ZStack {
-            // The pink full stop echoes the "teamwork." wordmark: the one place the brand pink appears in type.
-            Text("\(isToday ? "Today: \(title)" : title)\(Text(".").foregroundStyle(Brand.pink))")
-                .font(.title3.weight(.semibold))
-            HStack {
-                Spacer()
-                if !isToday {
-                    Button("Today") { day = calendar.startOfDay(for: .now) }
-                        .buttonStyle(.plain)
-                        .font(.callout.weight(.medium))
-                        .keyboardShortcut("t")
-                } else if let target = store.dayTarget {
-                    Text("\((dayTotals[day] ?? 0).hoursMinutes) / \(target.hoursMinutes)")
-                        .font(.callout.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.75))
-                        .accessibilityLabel("Today, \((dayTotals[day] ?? 0).spoken) of \(target.spoken)")
-                }
+        return ScreenHeader(title: isToday ? "Today: \(title)" : title) {
+            if !isToday {
+                Button("Today") { day = calendar.startOfDay(for: .now) }
+                    .buttonStyle(.plain)
+                    .font(.callout.weight(.medium))
+                    .keyboardShortcut("t")
+            } else if let target = store.dayTarget {
+                Text("\((dayTotals[day] ?? 0).hoursMinutes) / \(target.hoursMinutes)")
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.75))
+                    .accessibilityLabel("Today, \((dayTotals[day] ?? 0).spoken) of \(target.spoken)")
             }
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, Space.l)
-        .padding(.vertical, Space.l)
-        .frame(maxWidth: .infinity)
-        .background(Brand.slate)
     }
 
     /// Logged minutes per day plus today's timers (tracked but not yet logged).
@@ -145,11 +142,11 @@ struct MenuBarView: View {
             VStack(spacing: 0) {
                 ForEach(timers) { timer in
                     TimerRow(timer: timer, onLog: { screen = .log(timer) }, onEdit: { screen = .edit(timer) })
-                    Divider().padding(.leading, Space.l)
+                    RowDivider()
                 }
                 ForEach(entries) { entry in
                     DayEntryRow(entry: entry) { screen = .editEntry(entry) }
-                    Divider().padding(.leading, Space.l)
+                    RowDivider()
                 }
                 if timers.isEmpty && entries.isEmpty {
                     VStack(spacing: Space.s) {
@@ -168,7 +165,7 @@ struct MenuBarView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: Space.s) {
+        ActionBar {
             Button { screen = .newTimer } label: { Image(systemName: "plus").frame(width: 22, height: 20) }
                 .buttonStyle(.borderedProminent)
                 .tint(Brand.purpleFill)
@@ -178,6 +175,9 @@ struct MenuBarView: View {
             Button { screen = .pinned } label: { Image(systemName: "pin").frame(width: 22, height: 20) }
                 .help("Pinned")
                 .accessibilityLabel("Pinned")
+            Button { screen = .summary } label: { Image(systemName: "info").frame(width: 22, height: 20) }
+                .help("Time Summary")
+                .accessibilityLabel("Time Summary")
             if !store.timers.isEmpty {
                 Button { screen = .logAll } label: {
                     Label(store.timers.count == 1 ? "Log Timer" : "Log All", systemImage: "checkmark")
@@ -185,26 +185,25 @@ struct MenuBarView: View {
                 .help("Log timers to Teamwork")
             }
             Spacer()
+            // Split button: click opens the main window; its arrow holds what the gear menu used to.
             Menu {
-                Button("Open Window", action: showWindow)
-                if let site = store.site { Link("Open Teamwork", destination: site) }
-                Divider()
+                if let site = store.site { Link("Open Teamwork in Browser", destination: site) }
                 Button("Settings…", action: showSettings)
+                Divider()
                 Button("Quit Teamwork Timer") { NSApp.terminate(nil) }
             } label: {
-                Image(systemName: "gearshape")
+                Label("Open Window", systemImage: "macwindow")
+            } primaryAction: {
+                showWindow()
             }
-            .menuIndicator(.hidden)
+            .menuStyle(.button)
             .fixedSize()
-            .accessibilityLabel("Options")
+            .help("Open the Teamwork Timer window (⌘0)")
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .padding(.horizontal, Space.l)
-        .padding(.vertical, Space.m)
         .background {
-            // ⌘, ⌘Q and ⌘1–⌘9 (pinned) keep working without visible buttons.
+            // ⌘, ⌘0 ⌘Q and ⌘1–⌘9 (pinned) keep working without visible buttons.
             Button("Settings…", action: showSettings).keyboardShortcut(",").hidden()
+            Button("Open Window", action: showWindow).keyboardShortcut("0").hidden()
             Button("Quit") { NSApp.terminate(nil) }.keyboardShortcut("q").hidden()
             ForEach(Array(store.pins.prefix(9).enumerated()), id: \.element.id) { index, item in
                 Button(item.title) { Task { await store.start(item) } }
@@ -217,37 +216,24 @@ struct MenuBarView: View {
     // MARK: Other screens
 
     private var signedOut: some View {
-        // ponytail: plain stack — ContentUnavailableView collapses to zero height in a fit-to-content popover
-        VStack(spacing: Space.s) {
-            Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text("Not Signed In").font(.headline)
-            Text("Connect your Teamwork site to start tracking.")
-                .foregroundStyle(.secondary)
-            HStack {
-                Button("Sign In…", action: showSettings).buttonStyle(.borderedProminent).tint(Brand.purpleFill)
+        VStack(spacing: 0) {
+            ScreenHeader("Teamwork Timer")
+            VStack(spacing: Space.s) {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                Text("Not signed in").font(.headline)
+                Text("Connect your Teamwork site to start tracking.")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Space.xxl)
+            ActionBar {
                 Button("Quit") { NSApp.terminate(nil) }
+                Spacer()
+                Button("Sign In…", action: showSettings).primaryAction()
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(Space.xxl)
-    }
-
-    private func subscreen(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: Space.m) {
-            ZStack {
-                Text(title).font(.title3.weight(.semibold))
-                HStack {
-                    Button { screen = .day } label: { Label("Back", systemImage: "chevron.left") }
-                        .buttonStyle(.borderless)
-                        .keyboardShortcut(.cancelAction)
-                    Spacer()
-                }
-            }
-            content()
-        }
-        .padding(Space.l)
     }
 
     // MARK: Actions
@@ -337,12 +323,14 @@ struct PinnedList: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.xxs) {
+            VStack(alignment: .leading, spacing: 0) {
                 if store.pins.isEmpty {
                     Text("Right-click any task, project or timer and choose Pin to start it here in one click.")
                         .foregroundStyle(.secondary)
-                        .padding(Space.s)
+                        .padding(.horizontal, Space.l)
+                        .padding(.vertical, Space.l)
                 } else {
+                    SectionHeader("Pinned", trailing: "⌘1–⌘\(min(store.pins.count, 9))")
                     ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
                         WorkRow(item: item, shortcut: index < 9 ? index + 1 : nil, showsPin: false) { start(item) }
                     }
@@ -353,6 +341,7 @@ struct PinnedList: View {
                     ForEach(due) { item in WorkRow(item: item) { start(item) } }
                 }
             }
+            .padding(.bottom, Space.s)
         }
         .frame(maxHeight: 420)
         .fixedSize(horizontal: false, vertical: true)
@@ -394,7 +383,7 @@ struct DayEntryRow: View {
         }
         return HStack(alignment: .top, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(task ?? project).fontWeight(.semibold).lineLimit(2)
+                TitleLink(title: task ?? project, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
                 if task != nil { Text(project).foregroundStyle(.secondary).lineLimit(1) }
                 if !entry.description.isEmpty {
                     Text(entry.description).font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -430,5 +419,109 @@ struct DayEntryRow: View {
             Button("Delete…", role: .destructive) { confirmingDelete = true }.disabled(entry.locked)
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// Time Summary (from Harvest): today, yesterday, this week and this month, logged time plus running
+/// timers, with progress toward the working-day target. A full popover screen, opaque like the rest.
+struct TimeSummary: View {
+    @Environment(Store.self) private var store
+    let back: () -> Void
+    let openWeek: () -> Void
+    @State private var entries: [TimeEntry]?
+
+    var body: some View {
+        let calendar = Calendar.current
+        let now = Date.now
+        let today = calendar.dateInterval(of: .day, for: now)!
+        let yesterday = DateInterval(start: today.start.addingTimeInterval(-86_400), end: today.start)
+        let week = calendar.dateInterval(of: .weekOfYear, for: now)!
+        let month = calendar.dateInterval(of: .month, for: now)!
+        let tracked = store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
+        VStack(spacing: 0) {
+            ScreenHeader("Time Summary", back: back)
+            HStack(alignment: .top, spacing: 0) {
+                tile("Today", logged(in: today).map { $0 + tracked }, target: target(for: today))
+                Divider()
+                tile("Yesterday", logged(in: yesterday), target: target(for: yesterday), past: true)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            HStack(alignment: .top, spacing: 0) {
+                tile("This week", logged(in: week).map { $0 + tracked }, target: target(for: week))
+                Divider()
+                tile("This month", logged(in: month).map { $0 + tracked }, target: nil,
+                     note: daysLogged(in: month).map { "Logged on \($0) day\($0 == 1 ? "" : "s")" })
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            ActionBar {
+                Spacer()
+                Button("Open This Week", action: openWeek)
+                    .help("Show this week's entries in the main window")
+            }
+        }
+        // Waits for the user ID (it can still be loading right after launch or sign-in).
+        .task(id: store.userId) {
+            let start = min(month.start, week.start, yesterday.start)
+            entries = await store.timeEntries(from: start, to: today.end.addingTimeInterval(-1))
+        }
+    }
+
+    /// One figure: small-caps label, large total, then progress toward the target or a note.
+    /// `past`: the period is over, so a shortfall reads "under", not "left".
+    private func tile(_ label: String, _ value: TimeInterval?, target: TimeInterval?, note: String? = nil,
+                      past: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(label.uppercased())
+                .font(.caption.weight(.semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+            Text(value?.hoursMinutes ?? "–")
+                .font(.system(size: 30, weight: .semibold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            if let target, let value {
+                ProgressView(value: min(value / target, 1))
+                    .progressViewStyle(.linear)
+                    .tint(Brand.purpleFill)
+                Text(value >= target ? "Target met"
+                     : "\((target - value).hoursMinutes) \(past ? "under" : "left of") \(target.hoursMinutes)")
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(value >= target ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+            } else if let note {
+                Text(note).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(Space.l)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText(label, value, target))
+    }
+
+    private func accessibilityText(_ label: String, _ value: TimeInterval?, _ target: TimeInterval?) -> String {
+        guard let value else { return "\(label), loading" }
+        guard let target else { return "\(label), \(value.spoken)" }
+        return "\(label), \(value.spoken) of \(target.spoken)"
+    }
+
+    /// Working-day target × weekdays in the interval; nil without a target or on a weekend.
+    private func target(for interval: DateInterval) -> TimeInterval? {
+        guard let day = store.dayTarget else { return nil }
+        let days = weekdays(in: interval)
+        return days > 0 ? day * Double(days) : nil
+    }
+
+    /// Logged seconds in an interval; nil until loaded.
+    private func logged(in interval: DateInterval) -> TimeInterval? {
+        entries.map { list in
+            TimeInterval(list.filter { $0.timeLogged.map(interval.contains) ?? false }.reduce(0) { $0 + $1.minutes } * 60)
+        }
+    }
+
+    private func daysLogged(in interval: DateInterval) -> Int? {
+        entries.map { list in
+            Set(list.compactMap { $0.timeLogged }.filter(interval.contains).map { Calendar.current.startOfDay(for: $0) }).count
+        }
     }
 }

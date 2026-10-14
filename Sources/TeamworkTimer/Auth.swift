@@ -1,37 +1,61 @@
 import Foundation
+import LocalAuthentication
 import Network
 import Security
 
 /// Generic-password Keychain items for this app.
+///
+/// Items are stored under `<account>.v2`. Builds signed with the local self-signed identity still count as
+/// a new app to the Keychain (its partition list needs an Apple-issued team ID), so macOS asks for the login
+/// password once after each update; signing with an Apple Development certificate would remove that prompt.
+/// Items from the ad-hoc-signed builds (plain `<account>`) are read once, copied to `.v2`, then removed.
 enum Keychain {
     private static let service = "com.doxigo.TeamworkTimer"
+    private static let suffix = ".v2"
 
     static func get(_ account: String) -> Data? {
-        var result: AnyObject?
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-            kSecAttrAccount as String: account, kSecReturnData as String: true,
-        ]
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
+        if let data = read(account + suffix) { return data }
+        guard let legacy = read(account) else { return nil }
+        set(legacy, for: account)
+        remove(account, allowPrompt: false)
+        return legacy
     }
 
-    /// `nil` deletes the item. Updates in place when it exists, so an item an earlier build created
-    /// gets macOS's one-time "allow" prompt instead of a silent delete/add failure.
+    /// `nil` deletes the item (and any legacy copy).
     static func set(_ data: Data?, for account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
         guard let data else {
-            SecItemDelete(query as CFDictionary)
+            remove(account + suffix, allowPrompt: true)
+            remove(account, allowPrompt: false)
             return
         }
+        let query = base(account + suffix)
         if SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = data
             SecItemAdd(item as CFDictionary, nil)
         }
+    }
+
+    private static func read(_ account: String) -> Data? {
+        var query = base(account)
+        query[kSecReturnData as String] = true
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private static func remove(_ account: String, allowPrompt: Bool) {
+        var query = base(account)
+        if !allowPrompt {
+            let context = LAContext()
+            context.interactionNotAllowed = true // fail quietly rather than ask
+            query[kSecUseAuthenticationContext as String] = context
+        }
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private static func base(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
     }
 }
 

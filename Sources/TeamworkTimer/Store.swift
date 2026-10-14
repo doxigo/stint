@@ -252,7 +252,6 @@ final class Store {
         max(0, timer.elapsed(at: now) - (adjustments[timer.id] ?? 0))
     }
 
-    func clockStart(_ timer: TWTimer, at now: Date = .now) -> Date { now.addingTimeInterval(-elapsed(timer, at: now)) }
 
     /// Logs the timer. Teamwork's own "complete" is used when nothing was changed; an edited duration,
     /// removed idle time or "mark task complete" logs the entry directly and then deletes the timer.

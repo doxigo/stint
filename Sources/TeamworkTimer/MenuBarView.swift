@@ -50,21 +50,14 @@ struct MenuBarLabel: View {
     }
 }
 
-/// Count-up clock driven by the system, for windows (popover, main window, mini timer).
-/// Not for the menu bar label, where time-based views hang the app.
+/// Always-h:mm:ss clock ("0:37:18"), refreshed by the store's one-second ticker while a timer runs.
+/// The system timer text drops the hour below 60 minutes ("37:18"), which reads like 37 hours.
 struct TimerText: View {
     @Environment(Store.self) private var store
     let timer: TWTimer
 
     var body: some View {
-        Group {
-            if timer.running {
-                Text(timerInterval: store.clockStart(timer)...Date.distantFuture, countsDown: false)
-            } else {
-                Text(store.elapsed(timer).clock)
-            }
-        }
-        .monospacedDigit()
+        Text(store.elapsed(timer, at: store.menuBarNow).clock).monospacedDigit()
     }
 }
 
@@ -78,18 +71,21 @@ struct WorkPicker: View {
     @State private var results: [WorkItem] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(spacing: 0) {
             // Spotlight-style field: a magnifying glass reads as "search to start", like menu bar search fields.
-            HStack(spacing: 6) {
+            HStack(spacing: Space.xs) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField(scope.map { "Search \($0.name)…" } ?? "Start a timer…", text: $query)
+                TextField(scope.map { "Search \($0.name)…" } ?? "Search tasks and projects, or paste a link", text: $query)
                     .textFieldStyle(.plain)
                     .onSubmit { if let first = results.first { pick(first) } }
             }
             .padding(.horizontal, Space.s)
-            .padding(.vertical, Space.xs + 1)
+            .padding(.vertical, Space.xs + 2)
             .background(.quaternary.opacity(0.6), in: .rect(cornerRadius: 9))
-            ScrollView { list }
+            .padding(.horizontal, Space.l)
+            .padding(.vertical, Space.m)
+            Divider()
+            ScrollView { list.padding(.bottom, Space.s) }
                 .frame(maxHeight: maxHeight)
                 .fixedSize(horizontal: false, vertical: maxHeight != nil)
         }
@@ -106,17 +102,17 @@ struct WorkPicker: View {
     }
 
     @ViewBuilder private var list: some View {
-        VStack(alignment: .leading, spacing: Space.xxs / 2) {
+        VStack(alignment: .leading, spacing: 0) {
             if let scope {
                 Button { self.scope = nil; query = "" } label: {
-                    Label(scope.name, systemImage: "chevron.left").font(.headline)
+                    Label(scope.name, systemImage: "chevron.left").fontWeight(.semibold)
                 }
-                .buttonStyle(.plain)
-                .padding(.bottom, 4)
-                rows(results)
+                .buttonStyle(RowStyle())
+                .accessibilityHint("Back to all projects")
+                rows(results, showsProject: false)
             } else if !query.isEmpty {
                 rows(results)
-                if results.isEmpty { Text("No matches").foregroundStyle(.secondary).padding(8) }
+                if results.isEmpty { emptyNote("No tasks or projects match “\(query)”.") }
             } else {
                 if !store.pins.isEmpty {
                     SectionHeader("Pinned")
@@ -137,35 +133,27 @@ struct WorkPicker: View {
                 if !store.starred.isEmpty {
                     SectionHeader("Starred Projects")
                     ForEach(store.starred) { project in
-                        Button { scope = project } label: {
-                            HStack {
-                                Text(project.name).lineLimit(1)
-                                Spacer()
-                                Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                            }
-                        }
-                        .buttonStyle(RowStyle())
-                        .accessibilityHint("Shows the project's tasks")
-                        .contextMenu {
-                            Button("Start Timer on Project") { pick(WorkItem(project: project)) }
-                            Button("Pin Project") { store.togglePin(WorkItem(project: project)) }
-                            Button("Unstar Project") { Task { await store.setStarred(project, false) } }
-                        }
+                        ProjectRow(project: project, open: { scope = project }, start: { pick(WorkItem(project: project)) })
                     }
                 }
                 if store.pins.isEmpty && due.isEmpty && recents.isEmpty && store.starred.isEmpty {
-                    Text("Search for a project or task, or paste a task link, to start a timer. Pin it to start it in one click next time.")
-                        .foregroundStyle(.secondary)
-                        .padding(8)
+                    emptyNote("Search for a task or project, or paste a Teamwork task link. Pin what you repeat to start it in one click next time.")
                 }
             }
         }
     }
 
-    private func rows(_ items: [WorkItem], numbered: Bool = false) -> some View {
+    private func rows(_ items: [WorkItem], numbered: Bool = false, showsProject: Bool = true) -> some View {
         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            WorkRow(item: item, shortcut: numbered && index < 9 ? index + 1 : nil) { pick(item) }
+            WorkRow(item: item, shortcut: numbered && index < 9 ? index + 1 : nil, showsProject: showsProject) { pick(item) }
         }
+    }
+
+    private func emptyNote(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Space.l)
+            .padding(.vertical, Space.m)
     }
 
     private func pick(_ item: WorkItem) {
@@ -175,17 +163,90 @@ struct WorkPicker: View {
     }
 }
 
-struct SectionHeader: View {
+/// A task or project title that opens it in Teamwork with one click. Quiet until hovered:
+/// then it underlines, shows ↗ and the link cursor.
+struct TitleLink: View {
+    @Environment(\.openURL) private var openURL
     let title: String
-    init(_ title: String) { self.title = title }
+    let url: URL?
+    var lineLimit = 2
+    @State private var hovering = false
+    @State private var lastOpened = Date.distantPast
 
     var body: some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Space.s)
-            .padding(.top, Space.m).padding(.bottom, Space.xxs)
-            .accessibilityAddTraits(.isHeader)
+        if let url {
+            Button {
+                // A double-click on the row shouldn't open two tabs.
+                guard Date.now.timeIntervalSince(lastOpened) > 1 else { return }
+                lastOpened = .now
+                openURL(url)
+            } label: {
+                Text(hovering ? "\(title) \(Image(systemName: "arrow.up.right"))" : "\(title)")
+                    .fontWeight(.semibold)
+                    .lineLimit(lineLimit)
+                    .multilineTextAlignment(.leading)
+                    .underline(hovering)
+            }
+            .buttonStyle(.plain)
+            .pointerStyle(.link)
+            .onHover { hovering = $0 }
+            .help("Open in Teamwork")
+            .accessibilityLabel("\(title), open in Teamwork")
+            .accessibilityAddTraits(.isLink)
+        } else {
+            Text(title).fontWeight(.semibold).lineLimit(lineLimit)
+        }
+    }
+}
+
+/// Group label in small caps, aligned with row text; optional trailing value (e.g. a day total).
+struct SectionHeader: View {
+    let title: String
+    var trailing: String?
+    init(_ title: String, trailing: String? = nil) {
+        self.title = title
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        HStack {
+            Text(title.uppercased()).tracking(0.6)
+            Spacer()
+            if let trailing { Text(trailing).monospacedDigit() }
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, Space.l)
+        .padding(.top, Space.l)
+        .padding(.bottom, Space.xs)
+        .background(.background) // opaque when pinned over scrolling rows in the window
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A starred project that opens its task list; start, pin and unstar from the context menu.
+struct ProjectRow: View {
+    @Environment(Store.self) private var store
+    let project: Project
+    let open: () -> Void
+    let start: () -> Void
+
+    var body: some View {
+        let item = WorkItem(project: project)
+        Button(action: open) {
+            HStack {
+                Text(project.name).lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(RowStyle())
+        .accessibilityHint("Shows the project's tasks")
+        .contextMenu {
+            Button("Start Timer on Project", action: start)
+            Button(store.isPinned(item) ? "Unpin Project" : "Pin Project") { store.togglePin(item) }
+            Button("Unstar Project") { Task { await store.setStarred(project, false) } }
+        }
     }
 }
 
@@ -196,22 +257,24 @@ struct WorkRow: View {
     var shortcut: Int?
     /// Off inside the pinned list itself, where every row is pinned.
     var showsPin = true
+    /// Off inside a project's own task list.
+    var showsProject = true
     let start: () -> Void
     @State private var hovering = false
 
     var body: some View {
         let pinned = store.isPinned(item)
         Button(action: start) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.title).lineLimit(1)
-                    if let subtitle = item.subtitle {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: Space.s) {
+                VStack(alignment: .leading, spacing: Space.xxs / 2) {
+                    Text(item.title).lineLimit(2).multilineTextAlignment(.leading)
+                    if showsProject, let subtitle = item.subtitle {
+                        Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
-                Spacer()
+                Spacer(minLength: Space.s)
                 if let shortcut {
-                    Text("⌘\(shortcut)").font(.caption).foregroundStyle(.tertiary)
+                    Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
                 } else if pinned && showsPin {
                     Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
                 }
@@ -274,7 +337,7 @@ struct TimerRow: View {
         let elapsed = store.elapsed(timer, at: store.menuBarNow)
         return HStack(alignment: .top, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(title).fontWeight(.semibold).lineLimit(2)
+                TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
                 if let project { Text(project).foregroundStyle(.secondary).lineLimit(1) }
                 if let notes { Text(notes).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
             }
@@ -347,84 +410,7 @@ struct TimerRow: View {
     }
 }
 
-/// Confirms a log: editable duration ("1:30", "1.5h", "90m"), pre-rounded per Settings,
-/// description, billable, mark task complete.
-struct LogView: View {
-    @Environment(Store.self) private var store
-    @AppStorage("rounding") private var rounding = Rounding.off
-    @AppStorage("roundingStep") private var roundingStep = 15
-    let timer: TWTimer
-    let done: () -> Void
-    @State private var duration = ""
-    /// Tracked time when the form opened, before rounding.
-    @State private var exactDuration = ""
-    @State private var description = ""
-    @State private var billable = false
-    @State private var markComplete = false
-    @State private var saving = false
-
-    var body: some View {
-        let seconds = parseDuration(duration)
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Log Time").font(.title2.bold())
-            VStack(alignment: .leading, spacing: 1) {
-                Text(store.title(of: timer))
-                if let subtitle = store.subtitle(of: timer) { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
-            }
-            LabeledContent("Duration") {
-                TextField("Duration", text: $duration, prompt: Text("1:30, 1.5h, 90m"))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-                    .monospacedDigit()
-            }
-            if seconds != nil, duration != exactDuration {
-                Text("Tracked \(exactDuration)\(rounding != .off ? " · \(rounding.rawValue.lowercased()) to \(roundingStep) min" : "")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if seconds == nil {
-                Label("Enter a duration like 1:30, 1.5h or 90m.", systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            } else if let seconds, seconds < 60 {
-                Label("Teamwork logs whole minutes; enter at least 1 minute.", systemImage: "exclamationmark.circle")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-            TextField("Description", text: $description, axis: .vertical)
-                .lineLimit(2...4)
-                .textFieldStyle(.roundedBorder)
-            Toggle("Billable", isOn: $billable)
-            if timer.taskId != nil { Toggle("Mark task complete", isOn: $markComplete) }
-            HStack {
-                Spacer()
-                Button("Cancel", action: done).keyboardShortcut(.cancelAction)
-                Button("Log \(seconds.map(\.hoursMinutes) ?? "")") {
-                    guard let seconds else { return }
-                    saving = true
-                    Task {
-                        // Unrounded, untouched field → let Teamwork log the live timer time ("complete").
-                        if await store.log(timer, seconds: seconds, durationEdited: duration != exactDuration,
-                                           description: description, billable: billable, markTaskComplete: markComplete) { done() }
-                        saving = false
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
-                .disabled(saving || (seconds ?? 0) < 60)
-            }
-        }
-        .onAppear {
-            let tracked = store.elapsed(timer)
-            exactDuration = tracked.hoursMinutes
-            duration = rounding.apply(tracked, step: roundingStep).hoursMinutes
-            description = timer.description
-            billable = timer.billable
-        }
-    }
-}
-
-/// Menu-like rows: full-width hit target with a hover highlight, as in native menus.
+/// Full-width list rows, padded like the day list, with a faint brand-purple hover wash.
 struct RowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
 
@@ -434,11 +420,11 @@ struct RowStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .padding(.horizontal, Space.s)
-                .padding(.vertical, Space.xs)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Space.l)
+                .padding(.vertical, Space.s)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(.rect)
-                .background(.quaternary.opacity(hovering || configuration.isPressed ? 1 : 0), in: .rect(cornerRadius: 8))
+                .background(Brand.purple.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
                 .onHover { hovering = $0 }
         }
     }
