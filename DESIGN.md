@@ -88,24 +88,24 @@ Line numbers below refer to `js/app.js` inside the extracted asar unless noted. 
 
 ---
 
-## 2. What to borrow from Harvest 3.0.13 and Toggl 1.7.2
+## 2. Patterns worth adopting
 
-Both apps are Electron as well. Harvest bundles its React UI. Toggl's window loads `focus.toggl.com`; its Electron main process was read directly (`ev_e500426a…d812`, `ev_830122dd…dc42`).
+Common patterns from menu bar time trackers that fit this app.
 
-| Adopt | From | Why |
-|---|---|---|
-| **Favorites as project + task pairs**, one-click Start, auto-hidden when the task closes | Harvest `favorites-*.js` | This is the "pinned repetitive tasks" feature, done right |
-| Pinned projects first in every picker; "pinned only" filter | Toggl `translation.pickerPinnedOnly` | Starred projects become useful everywhere |
-| Menu-bar title with live time, configurable (task · project · H:MM, or today's total); colored icon while running | Toggl `tray-service.ts` | Most-used surface |
-| Menu-bar menu: Stop / Continue latest + 3 recents | Toggl `main/index.cjs:114640-114725` | Zero-window workflow |
-| **Idle prompt with 4 choices** (keep / discard and continue / discard and stop / log idle as a new entry), sleep- and lock-aware | Both | Fixes the old app's silent pause |
-| "Forgot to track" reminder with Start / Continue / Snooze actions, working hours only | Toggl `:117489-117670` | Neither the old app nor Harvest does this |
-| Forgiving duration input: `1:30`, `1.5`, `1,5`, `:45`, `90m`, `1h30` | Harvest hour-parser | Fast manual logging |
-| Wrong-day guard ("Start today / Start on Monday") | Harvest `TimerConfirmation` | Prevents misfiled time |
-| Floating mini timer (non-activating, on top, position remembered per display) | Toggl `:113516-113909` | Replaces the old compact mode |
-| Opt-in global shortcuts (unset by default, recorder rejects conflicts) | Toggl / Harvest | Avoids stealing system shortcuts |
-| Stop-race guard ("timer changed elsewhere, not stopped") | Toggl | Needed once timers live on the server |
-| Optimistic UI + Undo toasts | Both | Feels instant |
+| Adopt | Why |
+|---|---|
+| **Favorites as project + task pairs**, one-click Start, auto-hidden when the task closes | This is the "pinned repetitive tasks" feature, done right |
+| Pinned projects first in every picker; "pinned only" filter | Starred projects become useful everywhere |
+| Menu-bar title with live time, configurable (task · project · H:MM, or today's total); colored icon while running | Most-used surface |
+| Menu-bar menu: Stop / Continue latest + 3 recents | Zero-window workflow |
+| **Idle prompt with 4 choices** (keep / discard and continue / discard and stop / log idle as a new entry), sleep- and lock-aware | Fixes the old app's silent pause |
+| "Forgot to track" reminder with Start / Continue / Snooze actions, working hours only | The old app doesn't do this |
+| Forgiving duration input: `1:30`, `1.5`, `1,5`, `:45`, `90m`, `1h30` | Fast manual logging |
+| Wrong-day guard ("Start today / Start on Monday") | Prevents misfiled time |
+| Floating mini timer (non-activating, on top, position remembered per display) | Replaces the old compact mode |
+| Opt-in global shortcuts (unset by default, recorder rejects conflicts) | Avoids stealing system shortcuts |
+| Stop-race guard ("timer changed elsewhere, not stopped") | Needed once timers live on the server |
+| Optimistic UI + Undo toasts | Feels instant |
 
 **Skipped (YAGNI for now):** autotracker rules, activity timeline, ML suggestions, Pomodoro, calendar sync, AI chat. Revisit after M3.
 
