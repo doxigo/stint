@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    permissions:
+      contents: write # a v* tag attaches the app to a GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Checks
+        run: ./check.sh
+
+      - name: Version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${GITHUB_REF_NAME#v}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER}" Info.plist
+
+      - name: Build app
+        run: ./bundle.sh
+
+      - name: Zip
+        run: ditto -c -k --keepParent "build/Teamwork Timer.app" TeamworkTimer.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TeamworkTimer
+          path: TeamworkTimer.zip
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" TeamworkTimer.zip --title "$GITHUB_REF_NAME" --generate-notes

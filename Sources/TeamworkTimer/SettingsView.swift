@@ -1,16 +1,6 @@
 import ServiceManagement
 import SwiftUI
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") { GeneralSettings() }
-            Tab("Account", systemImage: "person.crop.circle") { AccountSettings() }
-        }
-        .frame(width: 480)
-    }
-}
-
 struct GeneralSettings: View {
     @Environment(Store.self) private var store
     @AppStorage("globalShortcut") private var shortcut = HotKey.Preset.none
@@ -132,7 +122,9 @@ struct AccountSettings: View {
     @AppStorage("oauthClientID") private var clientID = ""
     @AppStorage("oauthRedirect") private var redirect = "http://localhost:8123"
     @State private var token = ""
-    @State private var clientSecret = Store.savedOAuthSecret ?? ""
+    /// Read from the Keychain only when the OAuth form shows: reading it on every draw asked for the
+    /// login password whenever Account opened (once per build, as with any item; see `Keychain`).
+    @State private var clientSecret = ""
     @State private var signingIn: Task<Void, Never>?
     @State private var error: String?
 
@@ -203,6 +195,9 @@ struct AccountSettings: View {
             }
         }
         .formStyle(.grouped)
+        .task(id: method) {
+            if !store.isSignedIn, method == .oauth, clientSecret.isEmpty { clientSecret = Store.savedOAuthSecret ?? "" }
+        }
     }
 
     /// Your site's portal (`<site>/developer`) once a site is known, else Teamwork's guide.

@@ -27,10 +27,6 @@ struct TeamworkTimerApp: App {
         .defaultSize(width: 920, height: 620)
         .defaultLaunchBehavior(.suppressed)
         .commands { AppCommands(store: store) }
-
-        Settings {
-            SettingsView().environment(store).tint(Brand.purple)
-        }
     }
 }
 
@@ -40,6 +36,14 @@ struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Settings live in the main window's sidebar rather than a separate window.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                openWindow(id: "main")
+                store.section = .settings
+            }
+            .keyboardShortcut(",")
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Timer…") {
                 openWindow(id: "main")
@@ -60,7 +64,7 @@ struct AppCommands: Commands {
                 .disabled(!store.isSignedIn)
         }
         CommandGroup(before: .sidebar) {
-            ForEach(Array(Store.Section.allCases.enumerated()), id: \.element) { index, section in
+            ForEach(Array(Store.Section.library.enumerated()), id: \.element) { index, section in
                 Button(section.rawValue) {
                     openWindow(id: "main")
                     store.section = section

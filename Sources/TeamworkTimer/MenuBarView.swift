@@ -4,6 +4,7 @@ import SwiftUI
 enum MenuBarStyle: String, CaseIterable, Identifiable {
     case taskAndTime = "Task and time"
     case time = "Time"
+    case badge = "Time badge"
     case icon = "Icon only"
     var id: Self { self }
 }
@@ -29,14 +30,19 @@ struct MenuBarLabel: View {
             // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
             let elapsed = store.elapsed(timer, at: store.menuBarNow)
             let time = showsSeconds ? elapsed.clock : elapsed.hoursMinutes
-            HStack(spacing: 4) {
-                // Shape, not just colour, tells running from paused.
-                Image(systemName: timer.running ? "play.fill" : "pause.fill")
-                switch style {
-                // Leading space: the status item ignores HStack spacing between its image and title.
-                case .taskAndTime: Text(" \(Self.shortened(store.title(of: timer)))  \(time)").monospacedDigit()
-                case .time: Text(" \(time)").monospacedDigit()
-                case .icon: EmptyView()
+            if style == .badge {
+                Image(nsImage: MenuBarBadge.image(running: timer.running, time: time))
+                    .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
+            } else {
+                HStack(spacing: 4) {
+                    // Shape, not just colour, tells running from paused.
+                    Image(systemName: timer.running ? "play.fill" : "pause.fill")
+                    switch style {
+                    // Leading space: the status item ignores HStack spacing between its image and title.
+                    case .taskAndTime: Text(" \(Self.shortened(store.title(of: timer)))  \(time)").monospacedDigit()
+                    case .time: Text(" \(time)").monospacedDigit()
+                    case .icon, .badge: EmptyView()
+                    }
                 }
             }
         } else {
@@ -47,6 +53,36 @@ struct MenuBarLabel: View {
     /// Keeps the status item from crowding out other menu bar items.
     static func shortened(_ title: String) -> String {
         title.count > 24 ? title.prefix(23) + "…" : title
+    }
+}
+
+/// Harvest-style status item: a play/pause segment and the time in one rounded pill. Drawn as a
+/// template image (the label takes a single image), so the menu bar tints it for light and dark
+/// wallpapers and inverts it while the popover is open.
+enum MenuBarBadge {
+    static func image(running: Bool, time: String) -> NSImage {
+        let text = NSAttributedString(string: time, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.black,
+        ])
+        let glyph = NSImage(systemSymbolName: running ? "play.fill" : "pause.fill", accessibilityDescription: nil)!
+            .withSymbolConfiguration(.init(pointSize: 8, weight: .black))!
+        let height: CGFloat = 18, segment: CGFloat = 18, padding: CGFloat = 6
+        let textSize = text.size()
+        let size = NSSize(width: segment + padding + ceil(textSize.width) + padding, height: height)
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
+            // Two tones, as in Harvest: the glyph segment a step stronger than the time segment.
+            NSColor.black.withAlphaComponent(0.32).setFill()
+            NSRect(x: 0, y: 0, width: segment, height: height).fill()
+            NSColor.black.withAlphaComponent(0.16).setFill()
+            NSRect(x: segment, y: 0, width: size.width - segment, height: height).fill()
+            glyph.draw(in: NSRect(x: (segment - glyph.size.width) / 2, y: (height - glyph.size.height) / 2,
+                                  width: glyph.size.width, height: glyph.size.height))
+            text.draw(at: NSPoint(x: segment + padding, y: (height - textSize.height) / 2))
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
 

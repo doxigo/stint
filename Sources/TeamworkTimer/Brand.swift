@@ -30,20 +30,14 @@ enum Space {
     static let xxl: CGFloat = 32
 }
 
-/// The pink "live" dot on a running timer (the logo's dot). Breathes slowly unless Reduce Motion is on.
+/// The pink "live" dot on a running timer (the logo's dot).
+/// ponytail: static on purpose. A pulse (repeatForever animation or symbol effect) redrew the window every
+/// frame: 30–50 % CPU while open. If it should breathe again, use a CABasicAnimation on a layer (render server).
 struct LiveDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dim = false
-
     var body: some View {
         Circle()
             .fill(Brand.pink)
             .frame(width: 7, height: 7)
-            .opacity(dim ? 0.35 : 1)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { dim = true }
-            }
             .accessibilityHidden(true)
     }
 }

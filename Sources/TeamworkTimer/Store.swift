@@ -12,7 +12,10 @@ final class Store {
     enum Section: String, CaseIterable, Identifiable {
         case timers = "Timers", today = "Today", week = "This Week", pinned = "Pinned"
         case starred = "Starred Projects", tasks = "My Tasks"
+        case settings = "Settings", account = "Account"
         var id: Self { self }
+        /// The pages that need a signed-in account; Settings and Account sit in the sidebar's footer.
+        static let library: [Section] = [.timers, .today, .week, .pinned, .starred, .tasks]
         var symbol: String {
             switch self {
             case .timers: "timer"
@@ -21,6 +24,8 @@ final class Store {
             case .pinned: "pin"
             case .starred: "star"
             case .tasks: "checklist"
+            case .settings: "gearshape"
+            case .account: "person.crop.circle"
             }
         }
     }
@@ -40,6 +45,10 @@ final class Store {
     private(set) var loggedToday: TimeInterval = 0
     /// Bumped after each successful log so entry lists reload.
     private(set) var logRevision = 0
+    /// Logged entries per week (key: the week's start), shared by the popover and the window. A week shows
+    /// from here at once while it reloads in the background; the weeks either side load ahead.
+    // ponytail: never evicted; a week is a few dozen entries.
+    private(set) var weeks: [Date: [TimeEntry]] = [:]
     /// Clock for the menu bar label, ticking once a second only while a timer runs.
     /// Time-based views (`Text(timerInterval:)`, `TimelineView`) spin at 100 % CPU inside a MenuBarExtra label,
     /// so the label renders plain text against this instead.
@@ -118,6 +127,7 @@ final class Store {
         userId = nil
         timers = []
         starred = []
+        weeks = [:]
         loggedToday = 0
         updateTicker()
     }
@@ -155,6 +165,8 @@ final class Store {
         poller = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
+                // This week is ready before the popover first opens (retried until it loads).
+                if self?.weeks.isEmpty == true { await self?.loadWeek(containing: .now) }
                 self?.reminders.check()
                 try? await Task.sleep(for: .seconds(Self.pollSeconds))
             }
@@ -194,6 +206,24 @@ final class Store {
     func refreshToday() async {
         guard let entries = await timeEntries(from: .now, to: .now) else { return }
         loggedToday = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
+    }
+
+    /// Reloads the week containing `date`, then fetches the weeks either side that aren't cached yet
+    /// (never future ones), so stepping through days and weeks shows totals without waiting.
+    func loadWeek(containing date: Date) async {
+        let calendar = Calendar.current
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: date) else { return }
+        await fetchWeek(week)
+        for offset in [-1, 1] {
+            guard let start = calendar.date(byAdding: .weekOfYear, value: offset, to: week.start),
+                  start <= .now, weeks[start] == nil,
+                  let neighbour = calendar.dateInterval(of: .weekOfYear, for: start) else { continue }
+            await fetchWeek(neighbour)
+        }
+    }
+
+    private func fetchWeek(_ week: DateInterval) async {
+        if let entries = await timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)) { weeks[week.start] = entries }
     }
 
     /// nil when Teamwork couldn't be reached, so callers keep what they had.

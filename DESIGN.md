@@ -147,11 +147,11 @@ Both apps are Electron as well. Harvest bundles its React UI. Toggl's window loa
 
 **Detail:** a list (content layer, no glass).
 **Inspector** (trailing): edit project, task, description, billable, tags, duration, date.
-**Toolbar:** primary *New Timer* (+), search, Refresh. The account menu lives in the sidebar footer.
+**Toolbar:** primary *New Timer* (+), search, Refresh. The sidebar groups pages under Time (Timers, Today, This Week) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
 
 **Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
-**Windows:** one main window, the Settings scene, and the Mini Timer (`NSPanel`, non-activating).
+**Windows:** one main window and the Mini Timer (`NSPanel`, non-activating).
 
 ### 3.3 Command map
 Every command is defined once (an `AppCommand` enum) and invoked from menus, toolbar, menu bar and context menus alike.
@@ -270,7 +270,7 @@ Deferred:
 **Still to confirm on the first live run:** whether `time.json`'s `startDate`/`endDate` filter by your local day or by UTC. That decides whether early-morning entries show in Today if you're east of UTC.
 
 **Menu bar:** this is the main timer display, as in Harvest. Settings › General › Menu Bar offers:
-- **Show:** Task and time, Time (the default) or Icon only.
+- **Show:** Task and time, Time (the default), Time badge (Harvest's two-tone pill: play/pause segment plus time, drawn as one template image) or Icon only.
 - **Show seconds:** off by default, so it reads like Harvest's "1:23".
 
 The floating mini timer is an optional extra, off by default.

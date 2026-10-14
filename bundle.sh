@@ -1,9 +1,11 @@
 #!/bin/sh
 # Builds "build/Teamwork Timer.app" without Xcode.
-# ponytail: pinned to the macOS 26 SDK because the CLT's macOS 27 SwiftUI needs Xcode's macro plugins; drop SDKROOT once Xcode is installed
 set -eu
 cd "$(dirname "$0")"
-export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
+# Command Line Tools only: pin the macOS 26 SDK, because the CLT's macOS 27 SwiftUI needs Xcode's macro
+# plugins. With Xcode selected (CI), its own SDK is used.
+clt_sdk=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
+case "$(xcode-select -p)" in */CommandLineTools) [ -d "$clt_sdk" ] && export SDKROOT="$clt_sdk" ;; esac
 swift build -c release
 app="build/Teamwork Timer.app"
 rm -rf "$app"

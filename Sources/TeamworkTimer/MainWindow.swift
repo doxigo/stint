@@ -7,39 +7,44 @@ struct MainWindow: View {
     var body: some View {
         @Bindable var store = store
         NavigationSplitView {
-            // Our own selection: List(selection:) paints the system accent (blue), which the app can't
-            // change without an Xcode-built asset catalog. ⌘1–⌘6 (View menu) select sections from the keyboard.
-            List(Store.Section.allCases) { section in
-                let selected = (store.section ?? .timers) == section
-                Button { store.section = section } label: {
-                    Label {
-                        Text(section.rawValue).fontWeight(selected ? .semibold : .regular)
-                    } icon: {
-                        Image(systemName: section.symbol).foregroundStyle(Brand.purple)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Space.xs)
-                    .padding(.vertical, Space.xs - 2)
-                    .background(Brand.purple.opacity(selected ? 0.14 : 0), in: .rect(cornerRadius: 8))
-                    .contentShape(.rect)
+            List {
+                Section("Time") {
+                    SidebarRow(section: .timers, trailing: store.timers.isEmpty ? nil : "\(store.timers.count)")
+                    SidebarRow(section: .today)
+                    SidebarRow(section: .week)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                Section("Work") {
+                    SidebarRow(section: .pinned, trailing: store.pins.isEmpty ? nil : "\(store.pins.count)")
+                    SidebarRow(section: .starred)
+                    SidebarRow(section: .tasks)
+                }
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter() }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
             Group {
-                if !store.isSignedIn {
-                    ContentUnavailableView("Not Signed In", systemImage: "person.crop.circle.badge.questionmark",
-                                           description: Text("Sign in from Settings (⌘,) to see your timers."))
+                let section = store.section ?? .timers
+                if section == .settings {
+                    GeneralSettings().navigationTitle("Settings")
+                } else if section == .account {
+                    AccountSettings().navigationTitle("Account")
+                } else if !store.isSignedIn {
+                    ContentUnavailableView {
+                        Label("Not Signed In", systemImage: "person.crop.circle.badge.questionmark")
+                    } description: {
+                        Text("Connect your Teamwork site to see your timers.")
+                    } actions: {
+                        Button("Sign In…") { store.section = .account }.primaryAction()
+                    }
                 } else {
-                    switch store.section ?? .timers {
+                    switch section {
                     case .timers: TimersView()
                     case .today: EntriesView(span: .day)
                     case .week: EntriesView(span: .weekOfYear)
                     case .pinned: PinnedView()
                     case .starred: StarredView()
                     case .tasks: MyTasksView()
+                    case .settings, .account: EmptyView() // handled above
                     }
                 }
             }
@@ -80,6 +85,103 @@ struct MainWindow: View {
             NSApp.activate() // after the policy change, or the app's menu bar doesn't show
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
+    }
+}
+
+/// Sidebar item with our own selection: List(selection:) paints the system accent (blue), which the
+/// app can't change without an Xcode-built asset catalog. ⌘1–⌘6 and ⌘, (menus) select from the keyboard.
+struct SidebarRow: View {
+    @Environment(Store.self) private var store
+    let section: Store.Section
+    /// A count at the trailing edge (timers, pins).
+    var trailing: String?
+
+    var body: some View {
+        let selected = (store.section ?? .timers) == section
+        Button { store.section = section } label: {
+            HStack {
+                Label {
+                    Text(section.rawValue).fontWeight(selected ? .semibold : .regular).lineLimit(1)
+                } icon: {
+                    Image(systemName: section.symbol).foregroundStyle(Brand.purple)
+                }
+                Spacer(minLength: Space.xs)
+                if let trailing { Text(trailing).monospacedDigit().foregroundStyle(.secondary) }
+            }
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.xxs)
+            .background(Brand.purple.opacity(selected ? 0.14 : 0), in: .rect(cornerRadius: 8))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Pinned to the sidebar's bottom: who's signed in (opens Account) and a Settings gear.
+struct SidebarFooter: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let section = store.section
+        HStack(spacing: Space.xxs) {
+            Button { store.section = .account } label: {
+                HStack(spacing: Space.xs) {
+                    Avatar(name: store.accountName)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(store.isSignedIn ? store.accountName ?? "Account" : "Sign In")
+                            .fontWeight(.medium)
+                            .lineLimit(1)
+                        if store.isSignedIn, let host = store.site?.host() {
+                            Text(host).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, Space.xs)
+                .padding(.vertical, Space.xs - 2)
+                .background(Brand.purple.opacity(section == .account ? 0.14 : 0), in: .rect(cornerRadius: 8))
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Account")
+            .accessibilityAddTraits(section == .account ? .isSelected : [])
+
+            Button { store.section = .settings } label: {
+                Image(systemName: "gearshape")
+                    .font(.title3)
+                    .foregroundStyle(section == .settings ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+                    .frame(width: 30, height: 30)
+                    .background(Brand.purple.opacity(section == .settings ? 0.14 : 0), in: .rect(cornerRadius: 8))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
+            .accessibilityLabel("Settings")
+            .accessibilityAddTraits(section == .settings ? .isSelected : [])
+        }
+        .padding(.horizontal, Space.xs)
+        .padding(.bottom, Space.s)
+    }
+}
+
+/// Initials in a brand-purple circle; a person glyph when signed out.
+struct Avatar: View {
+    let name: String?
+
+    var body: some View {
+        let initials = (name ?? "").split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+        ZStack {
+            Circle().fill(Brand.purpleFill)
+            if initials.isEmpty {
+                Image(systemName: "person.fill").font(.callout)
+            } else {
+                Text(initials.uppercased()).font(.caption.weight(.semibold))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(width: 28, height: 28)
+        .accessibilityHidden(true)
     }
 }
 
@@ -182,17 +284,16 @@ struct EntriesView: View {
     @Environment(Store.self) private var store
     let span: Calendar.Component
     @State private var anchor = Calendar.current.startOfDay(for: .now)
-    @State private var weekEntries: [TimeEntry] = []
-    @State private var loading = false
     @State private var sheet: TimerSheet?
     @State private var editingEntry: TimeEntry?
-    @State private var loadedWeek: DateInterval?
 
     private var calendar: Calendar { .current }
     private var interval: DateInterval { calendar.dateInterval(of: span, for: anchor)! }
     private var week: DateInterval { calendar.dateInterval(of: .weekOfYear, for: anchor)! }
     private var isCurrent: Bool { interval.contains(.now) }
-    private var entries: [TimeEntry] { weekEntries.filter { $0.timeLogged.map(interval.contains) ?? false } }
+    /// nil until the week has loaded once (then cached in the store).
+    private var weekEntries: [TimeEntry]? { store.weeks[week.start] }
+    private var entries: [TimeEntry] { (weekEntries ?? []).filter { $0.timeLogged.map(interval.contains) ?? false } }
     private var total: TimeInterval { TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60) }
     /// Working-day target × weekdays in view; nil without a target or on a weekend.
     private var target: TimeInterval? {
@@ -210,7 +311,7 @@ struct EntriesView: View {
     /// Per-day totals for the week strip, today's timers included (as in the popover).
     private var dayTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
-        for entry in weekEntries {
+        for entry in weekEntries ?? [] {
             guard let logged = entry.timeLogged else { continue }
             totals[calendar.startOfDay(for: logged), default: 0] += TimeInterval(entry.minutes * 60)
         }
@@ -259,7 +360,9 @@ struct EntriesView: View {
                 .frame(width: 440)
         }
         .overlay {
-            if entries.isEmpty && !loading && !(isCurrent && !store.timers.isEmpty) {
+            if weekEntries == nil {
+                ProgressView().controlSize(.small)
+            } else if entries.isEmpty && !(isCurrent && !store.timers.isEmpty) {
                 ContentUnavailableView("Nothing Logged", systemImage: "clock", description: Text("Time you log shows up here."))
             }
         }
@@ -279,13 +382,12 @@ struct EntriesView: View {
                     .help(span == .day ? "Next Day (⌘])" : "Next Week (⌘])")
             }
         }
-        // Reload on week change, after anything is logged (here or from the popover), and once the user ID arrives.
+        // Revalidates the (cached) week on week change, after anything is logged (here or from the popover),
+        // and once the user ID arrives.
         .task(id: "\(week.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
-            if loadedWeek != week { weekEntries = [] } // never show another week's rows under this title
-            loadedWeek = week
-            await load()
+            await store.loadWeek(containing: anchor)
         }
-        .refreshable { await load() }
+        .refreshable { await store.loadWeek(containing: anchor) }
     }
 
     private var title: String {
@@ -296,14 +398,6 @@ struct EntriesView: View {
 
     private func step(_ direction: Int) {
         anchor = calendar.date(byAdding: span, value: direction, to: anchor) ?? anchor
-    }
-
-    private func load() async {
-        loading = true
-        if let fetched = await store.timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)) {
-            weekEntries = fetched
-        }
-        loading = false
     }
 }
 

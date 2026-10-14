@@ -4,7 +4,6 @@ import SwiftUI
 /// the day's timers and logged entries with one Start button each, and a bottom bar.
 struct MenuBarView: View {
     @Environment(Store.self) private var store
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
     enum Screen: Equatable {
@@ -14,12 +13,12 @@ struct MenuBarView: View {
 
     @State private var screen = Screen.day
     @State private var day = Calendar.current.startOfDay(for: .now)
-    @State private var weekEntries: [TimeEntry] = []
-    @State private var loadedWeek: DateInterval?
 
     private var calendar: Calendar { .current }
     private var week: DateInterval { calendar.dateInterval(of: .weekOfYear, for: day)! }
     private var isToday: Bool { calendar.isDateInToday(day) }
+    /// nil until the week has loaded once (then cached in the store).
+    private var weekEntries: [TimeEntry]? { store.weeks[week.start] }
 
     var body: some View {
         Group {
@@ -34,10 +33,7 @@ struct MenuBarView: View {
                         WorkPicker(maxHeight: 420) { item in start(item) }
                     }
                 case .summary:
-                    TimeSummary(back: { screen = .day }, openWeek: {
-                        store.section = .week
-                        showWindow()
-                    })
+                    TimeSummary(back: { screen = .day }, openWeek: { show(.week) })
                 case .pinned:
                     VStack(spacing: 0) {
                         ScreenHeader("Pinned") { screen = .day }
@@ -50,7 +46,7 @@ struct MenuBarView: View {
                 }
             }
         }
-        .frame(width: 480)
+        .frame(width: 500)
         // Opaque like Harvest: reads cleanly over busy windows, unlike glass behind dense text.
         .background(.background)
         .tint(Brand.purple)
@@ -63,14 +59,10 @@ struct MenuBarView: View {
             await store.refreshToday()
             await store.refreshDueToday()
         }
-        // Reloads on week change, after anything is logged, and once the user ID arrives (it can still
-        // be loading when the popover first opens after launch or sign-in).
+        // Revalidates the (cached) week on week change, after anything is logged, and once the user ID
+        // arrives (it can still be loading when the popover first opens after launch or sign-in).
         .task(id: "\(week.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
-            if loadedWeek != week { weekEntries = [] } // never show another week's totals
-            loadedWeek = week
-            if let entries = await store.timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)) {
-                weekEntries = entries
-            }
+            await store.loadWeek(containing: day)
         }
     }
 
@@ -120,7 +112,7 @@ struct MenuBarView: View {
     /// Logged minutes per day plus today's timers (tracked but not yet logged).
     private var dayTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
-        for entry in weekEntries {
+        for entry in weekEntries ?? [] {
             guard let logged = entry.timeLogged else { continue }
             totals[calendar.startOfDay(for: logged), default: 0] += TimeInterval(entry.minutes * 60)
         }
@@ -130,7 +122,7 @@ struct MenuBarView: View {
     }
 
     private var entriesForDay: [TimeEntry] {
-        weekEntries
+        (weekEntries ?? [])
             .filter { $0.timeLogged.map { calendar.isDate($0, inSameDayAs: day) } ?? false }
             .sorted { ($0.timeLogged ?? .distantPast) < ($1.timeLogged ?? .distantPast) }
     }
@@ -148,7 +140,9 @@ struct MenuBarView: View {
                     DayEntryRow(entry: entry) { screen = .editEntry(entry) }
                     RowDivider()
                 }
-                if timers.isEmpty && entries.isEmpty {
+                if timers.isEmpty && entries.isEmpty && weekEntries == nil {
+                    ProgressView().controlSize(.small).padding(.vertical, Space.xxl + Space.m)
+                } else if timers.isEmpty && entries.isEmpty {
                     VStack(spacing: Space.s) {
                         Text(isToday ? "Nothing tracked yet today" : "Nothing logged on this day")
                             .foregroundStyle(.secondary)
@@ -182,6 +176,7 @@ struct MenuBarView: View {
                 Button { screen = .logAll } label: {
                     Label(store.timers.count == 1 ? "Log Timer" : "Log All", systemImage: "checkmark")
                 }
+                .fixedSize() // never "Lo…" next to Open Window
                 .help("Log timers to Teamwork")
             }
             Spacer()
@@ -231,7 +226,7 @@ struct MenuBarView: View {
             ActionBar {
                 Button("Quit") { NSApp.terminate(nil) }
                 Spacer()
-                Button("Sign In…", action: showSettings).primaryAction()
+                Button("Sign In…") { show(.account) }.primaryAction()
             }
         }
     }
@@ -248,9 +243,12 @@ struct MenuBarView: View {
         day = calendar.date(byAdding: .day, value: days, to: day) ?? day
     }
 
-    private func showSettings() {
-        NSApp.activate()
-        openSettings()
+    private func showSettings() { show(.settings) }
+
+    /// Opens the main window on a page (Settings and Account live there too).
+    private func show(_ section: Store.Section) {
+        store.section = section
+        showWindow()
     }
 
     private func showWindow() {
