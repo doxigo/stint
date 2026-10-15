@@ -306,9 +306,10 @@ enum Rounding: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Typed durations: "1:30", ":45", "1.5", "1,5" (hours), "90m", "1h30", "1h 30m", "2h".
-/// A bare number means hours, as in Harvest. Returns nil for empty, zero or over-24h input.
-func parseDuration(_ input: String) -> TimeInterval? {
+/// Typed durations: "1:30", "130" or "0130" (h:mm without the colon), ":45", "1.5", "1,5" (hours), "90m",
+/// "1h30", "1h 30m", "2h". A bare number of one or two digits means hours, as in Harvest.
+/// Returns nil for empty, zero (unless `allowZero`) or over-24h input.
+func parseDuration(_ input: String, allowZero: Bool = false) -> TimeInterval? {
     let text = input.lowercased().replacingOccurrences(of: ",", with: ".").filter { !$0.isWhitespace }
     // Digits, separators and unit letters only: rules out "-0:30", "1:-5", hex like "0x2", "1e3".
     guard !text.isEmpty, text.allSatisfy({ $0.isASCII && ($0.isNumber || ".:hrsouminte".contains($0)) }) else { return nil }
@@ -320,6 +321,10 @@ func parseDuration(_ input: String) -> TimeInterval? {
         let h = parts[0].isEmpty ? 0 : Double(parts[0])
         guard let h else { return nil }
         hours = h + m / 60
+    } else if text.wholeMatch(of: #/\d{3,4}/#) != nil, let h = Double(text.dropLast(2)), let m = Double(text.suffix(2)) {
+        // "530" → 5:30, "1230" → 12:30: the colon left out.
+        guard m < 60 else { return nil }
+        hours = h + m / 60
     } else if text.wholeMatch(of: #/\d+(\.\d+)?|\.\d+/#) != nil, let plain = Double(text) {
         hours = plain
     } else {
@@ -330,7 +335,20 @@ func parseDuration(_ input: String) -> TimeInterval? {
     }
 
     let seconds = (hours * 3600).rounded()
-    return seconds > 0 && seconds <= 24 * 3600 ? seconds : nil
+    return (seconds > 0 || allowZero) && seconds <= 24 * 3600 ? seconds : nil
+}
+
+/// The duration field's formatting as you type: three or four digits get their colon ("530" → "5:30",
+/// "1230" → "12:30", and deleting from "12:30" gives "1:23"). Anything else stays as typed (":45", "1.5h");
+/// a fifth digit is refused, keeping `previous`.
+func durationWithColon(_ typed: String, previous: String) -> String {
+    guard typed.wholeMatch(of: #/\d*:?\d*/#) != nil else { return typed }
+    let digits = typed.filter(\.isNumber)
+    switch digits.count {
+    case 3...4: return "\(digits.dropLast(2)):\(digits.suffix(2))"
+    case 5...: return previous
+    default: return typed
+    }
 }
 
 extension TimeInterval {

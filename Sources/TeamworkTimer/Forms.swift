@@ -144,19 +144,27 @@ struct LogWorkView: View {
     }
 }
 
-/// Moves a running or paused timer to another project/task and edits its notes; the tracked time stays.
+/// Moves a running or paused timer to another project/task, edits its notes and sets its tracked time
+/// (a running timer carries on from the new time).
 struct EditTimerView: View {
     @Environment(Store.self) private var store
     let timer: TWTimer
     let done: () -> Void
     @State private var target: WorkItem?
     @State private var choosing = false
+    @State private var duration = ""
+    /// Tracked time when the form opened; the time is only set if the field changes.
+    @State private var exactDuration = ""
     @State private var description = ""
     @State private var billable = false
     @State private var saving = false
 
     var body: some View {
         let current = target ?? store.workItem(for: timer)
+        let seconds = parseDuration(duration, allowZero: true)
+        let timeEdited = duration != exactDuration
+        // Unchanged, it stays valid even past 24 hours, so a forgotten timer can still be moved.
+        let timeValid = !timeEdited || seconds != nil
         VStack(spacing: 0) {
             if choosing {
                 ScreenHeader("Change Task") { choosing = false }
@@ -173,7 +181,9 @@ struct EditTimerView: View {
                         .help("Move this timer to another task or project")
                 }
                 Divider()
-                FieldRow(label: "Tracked") { TimerText(timer: timer).foregroundStyle(.secondary) }
+                FieldRow(label: "Tracked", note: timeNote(valid: timeValid, edited: timeEdited), noteIsError: !timeValid) {
+                    DurationField(text: $duration)
+                }
                 RowDivider()
                 NotesRow(text: $description)
                 RowDivider()
@@ -184,19 +194,28 @@ struct EditTimerView: View {
                     Button("Save") {
                         saving = true
                         Task {
-                            if await store.edit(timer, target: target, description: description, billable: billable) { done() }
+                            if await store.edit(timer, target: target, description: description, billable: billable,
+                                                seconds: timeEdited ? seconds : nil) { done() }
                             saving = false
                         }
                     }
                     .primaryAction()
-                    .disabled(saving)
+                    .disabled(saving || !timeValid)
                 }
             }
         }
         .onAppear {
+            exactDuration = store.elapsed(timer).hoursMinutes
+            duration = exactDuration
             description = timer.description
             billable = timer.billable
         }
+    }
+
+    private func timeNote(valid: Bool, edited: Bool) -> String? {
+        if !valid { return "Enter a time from 0:00 to 24:00, like 1:30, 1.5h or 90m." }
+        // Removed idle time, or an edited time Teamwork didn't take.
+        return !edited && store.adjustments[timer.id] != nil ? "Teamwork's web app shows the original time until you log it." : nil
     }
 }
 
@@ -409,17 +428,74 @@ struct EditEntryView: View {
     }
 }
 
-/// Right-aligned h:mm field with forgiving input ("1:30", "1.5h", "90m").
+/// Right-aligned h:mm field with forgiving input ("1:30", "530", "1.5h", "90m"). A click or Tab selects the
+/// whole value, so typing replaces it, and digits get their colon as you type (`durationWithColon`).
 struct DurationField: View {
     @Binding var text: String
 
     var body: some View {
-        TextField("Duration", text: $text, prompt: Text("1:30"))
-            .multilineTextAlignment(.trailing)
-            .monospacedDigit()
-            .font(.body.weight(.semibold))
+        DurationInput(text: $text)
             .frame(width: 72)
             .filledField()
-            .help("1:30, 1.5h or 90m")
+            .help("1:30, 530, 1.5h or 90m")
+    }
+}
+
+/// AppKit underneath: SwiftUI's TextField puts the caret where you click and can't be told to select all.
+private struct DurationInput: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> SelectAllField {
+        let field = SelectAllField()
+        field.placeholderString = "1:30"
+        field.alignment = .right
+        field.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.setAccessibilityLabel("Duration")
+        field.delegate = context.coordinator
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ field: SelectAllField, context: Context) {
+        context.coordinator.text = $text
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            let shown = durationWithColon(field.stringValue, previous: text.wrappedValue)
+            if shown != field.stringValue {
+                field.stringValue = shown
+                field.currentEditor()?.selectedRange = NSRange(location: (shown as NSString).length, length: 0)
+            }
+            text.wrappedValue = shown
+        }
+    }
+}
+
+/// Selects its whole value when it takes focus, by click or Tab; a second click places the caret as usual.
+final class SelectAllField: NSTextField {
+    private var selectAfterClick = false
+
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        currentEditor()?.selectAll(nil)
+        selectAfterClick = NSApp.currentEvent?.type == .leftMouseDown
+        return true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event) // the field editor tracks the click and places the caret
+        if selectAfterClick { currentEditor()?.selectAll(nil) }
+        selectAfterClick = false
     }
 }

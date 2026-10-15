@@ -3,7 +3,7 @@ import Observation
 import CryptoKit
 import SwiftUI // IndexSet-based `move(fromOffsets:toOffset:)`
 
-/// App state. Teamwork is the source of truth for timers and time entries; pins, recents and idle
+/// App state. Teamwork is the source of truth for timers and time entries; pins, recents and time
 /// adjustments are local.
 @MainActor @Observable
 final class Store {
@@ -39,8 +39,10 @@ final class Store {
     private(set) var starred: [Project] = []
     private(set) var pins: [WorkItem] = []
     private(set) var recents: [WorkItem] = []
-    /// Seconds removed from a running timer (idle time), applied when it's logged.
-    // ponytail: local until logged; the web app shows the full time meanwhile. Upgrade if Teamwork adds a duration edit.
+    /// Seconds taken off a timer's Teamwork time (an edited or idle-trimmed time Teamwork didn't take; negative adds
+    /// time), applied when it's logged.
+    // ponytail: only a fallback, since edits and idle removal set Teamwork's time; the web app shows Teamwork's time
+    // until it's logged.
     private(set) var adjustments: [Int: TimeInterval] = [:]
     /// Logged today, in seconds (refreshed when the popover or Today view opens).
     private(set) var loggedToday: TimeInterval = 0
@@ -268,12 +270,14 @@ final class Store {
 
     // MARK: Sync
 
-    func refresh() async {
+    /// False when the timers couldn't be fetched.
+    @discardableResult
+    func refresh() async -> Bool {
         if !accountReady {
-            guard let me = await poll({ try await $0.me() }) else { return }
+            guard let me = await poll({ try await $0.me() }) else { return false }
             identify(me)
         }
-        guard let page = await poll({ try await $0.timers() }) else { return }
+        guard let page = await poll({ try await $0.timers() }) else { return false }
         // A failed poll's banner (e.g. offline right after wake) clears once polling works; failed writes stay.
         if let pollError, errorMessage == pollError { errorMessage = nil }
         pollError = nil
@@ -294,6 +298,7 @@ final class Store {
             adjustments = adjustments.filter { live.contains($0.key) }
             save(adjustments, "adjustments")
         }
+        return true
     }
 
     func loadStarred() async {
@@ -381,7 +386,7 @@ final class Store {
         await refresh()
     }
 
-    /// Time shown and logged for a timer: server time minus removed idle time.
+    /// Time shown and logged for a timer: Teamwork's time with the local adjustment applied.
     func elapsed(_ timer: TWTimer, at now: Date = .now) -> TimeInterval {
         max(0, timer.elapsed(at: now) - (adjustments[timer.id] ?? 0))
     }
@@ -550,11 +555,27 @@ final class Store {
         showingLogAll = true
     }
 
-    /// Moves a timer to another project/task and/or edits its notes; the tracked time stays.
-    func edit(_ timer: TWTimer, target: WorkItem?, description: String, billable: Bool) async -> Bool {
-        let ok: Void? = await perform { try await $0.update(timer, target: target, description: description, billable: billable) }
+    /// Moves a timer to another project/task and/or edits its notes; `seconds` sets its tracked time from now on.
+    func edit(_ timer: TWTimer, target: WorkItem?, description: String, billable: Bool,
+              seconds: TimeInterval? = nil) async -> Bool {
+        let sent = Date.now
+        let ok: Void? = await perform {
+            try await $0.update(timer, target: target, description: description, billable: billable, seconds: seconds)
+        }
         if ok != nil, let target { remember(target) }
-        await refresh()
+        let fresh = await refresh()
+        if ok != nil, let seconds {
+            // Teamwork holds the new time, so the local adjustment goes. If the timer still reads otherwise (Teamwork
+            // ignored `seconds`), the difference is kept locally until it's logged, like removed idle time.
+            adjustments[timer.id] = nil
+            if fresh, let current = timers.first(where: { $0.id == timer.id }) {
+                let now = Date.now, roundTrip = now.timeIntervalSince(sent)
+                let drift = current.elapsed(at: now) - seconds - (current.running ? roundTrip : 0)
+                // A running timer reads up to a round trip short, give or take clock skew.
+                if abs(drift) > roundTrip + 5 { adjustments[timer.id] = drift }
+            }
+            save(adjustments, "adjustments")
+        }
         if ok != nil { showToast(target.map { "Timer moved to \($0.title)" } ?? "Timer updated") }
         return ok != nil
     }
@@ -590,13 +611,23 @@ final class Store {
         if ok != nil { showToast("Timer discarded", symbol: "trash") }
     }
 
-    /// Idle prompt outcome: drop `seconds` from the timer, optionally pausing it.
+    /// Idle prompt outcome: sets the timer's time on Teamwork without the idle stretch, optionally pausing it.
     func removeIdle(from since: Date, to end: Date, timer: TWTimer, session: UUID, stop: Bool) async {
         guard sessionID == session, let current = timers.first(where: { $0.id == timer.id }) else { return }
-        let seconds = current.trackedTime(from: since, to: end)
-        adjustments[timer.id, default: 0] += min(seconds, elapsed(current, at: end))
-        save(adjustments, "adjustments")
-        if stop && current.running { await toggle(current) }
+        let shown = elapsed(current, at: end)
+        let idle = min(current.trackedTime(from: since, to: end), shown)
+        // A running timer kept counting while the prompt was up.
+        let seconds = shown - idle + (current.running ? max(0, Date.now.timeIntervalSince(end)) : 0)
+        let set = await edit(current, target: nil, description: current.description, billable: current.billable, seconds: seconds)
+        guard sessionID == session else { return }
+        if !set {
+            // The request failed (offline or refused): keep it locally until it's logged, so the removal isn't lost.
+            // ponytail: a request that timed out after Teamwork applied it removes the idle time twice; compare
+            // against the refreshed time if that shows up.
+            adjustments[timer.id, default: 0] += idle
+            save(adjustments, "adjustments")
+        }
+        if stop, let current = timers.first(where: { $0.id == timer.id }), current.running { await toggle(current) }
     }
 
     // MARK: Projects, tasks, pins

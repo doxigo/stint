@@ -85,8 +85,10 @@ try await store.signIn(site: "b.teamwork.com", token: "placeholder")
 await store.refresh()
 check(!store.pins.contains(pin), "pins are isolated by site")
 let before = store.adjustments
+state.lock.withLock { state.calls = [] }
 await store.removeIdle(from: .distantPast, to: .now, timer: first, session: staleSession, stop: false)
-check(store.adjustments == before, "stale idle prompt cannot alter new session")
+check(store.adjustments == before && state.lock.withLock { !state.calls.contains { $0.contains("PUT") } },
+      "stale idle prompt cannot alter new session")
 try store.signOut()
 try await store.signIn(site: "a.teamwork.com", token: "placeholder")
 check(store.pins.contains(pin), "pins are restored for their own account")
@@ -104,7 +106,7 @@ let oldRefresh = Task { await store.refresh() }
 while !state.lock.withLock({ state.delayedStarted }) { try await Task.sleep(for: .milliseconds(5)) }
 try store.signOut()
 try await store.signIn(site: "new.teamwork.com", token: "placeholder")
-await oldRefresh.value
+_ = await oldRefresh.value
 check(store.timers.allSatisfy { $0.id != 999 }, "late old-account refresh cannot overwrite session")
 await store.start(WorkItem(projectId: 303, projectName: "Denied"))
 check(store.errorMessage?.contains("403") == true, "failed write remains visible after successful refresh")
@@ -202,6 +204,53 @@ check(await !store.log(work, seconds: 30, on: .now, description: "", billable: f
       && state.lock.withLock { state.posts[7] == 1 }, "under a minute is refused before posting")
 state.lock.withLock { state.delay = false }
 try store.signOut()
+
+// Editing a timer's time: Teamwork takes `seconds` and a running timer carries on from it; when a server ignores it,
+// Stint keeps the difference. Either way the time shown and logged is the new one, and idle removal still applies.
+let timer = { (id: Int) in store.timers.first { $0.id == id }! }
+let near = { (a: TimeInterval, b: TimeInterval) in abs(a - b) < 2 }
+let postedMinutes = { state.lock.withLock { (state.body?["timelog"] as? [String: Any]).map { ($0["hours"] as! Int) * 60 + ($0["minutes"] as! Int) } } }
+for mode in ["normal", "ignore-seconds"] {
+    state.lock.withLock { // timer 1 paused at 0:10, timer 2 running at 4:57
+        state.mode = mode; state.removed = []; state.posts = [:]; state.body = nil
+        state.durations = [:]; state.running = [2: .now.addingTimeInterval(-17_820)]
+    }
+    try await store.signIn(site: "\(mode).teamwork.com", token: "placeholder")
+    await store.refresh()
+    for seconds in [900.0, 300.0] { // later, then earlier
+        check(await store.edit(timer(1), target: nil, description: "", billable: false, seconds: seconds)
+              && store.elapsed(timer(1)) == seconds, "\(mode): a timer is set to exactly \(seconds.hoursMinutes)")
+        await store.refresh()
+        check(store.elapsed(timer(1)) == seconds, "\(mode): an edited time survives a refresh")
+    }
+    check(await store.edit(timer(2), target: nil, description: "", billable: false, seconds: 18_900)
+          && near(store.elapsed(timer(2)), 18_900) && near(store.elapsed(timer(2), at: .now + 60), 18_960),
+          "\(mode): a running 4:57 set to 5:15 carries on from 5:15")
+    check((store.adjustments[2] == nil) == (mode == "normal"), "\(mode): Teamwork keeps the new time, else Stint does")
+    await store.removeIdle(from: .now.addingTimeInterval(-120), to: .now, timer: timer(2), session: store.sessionID, stop: false)
+    let shown = store.elapsed(timer(2))
+    check(near(shown, 18_780), "\(mode): idle removal applies on top of an edited time")
+    check((store.adjustments[2] == nil) == (mode == "normal"), "\(mode): Teamwork holds the time without the idle stretch, else Stint does")
+    check(await store.log(timer(2), seconds: shown, durationEdited: false, description: "", billable: false, markTaskComplete: false)
+          && (mode == "normal" ? postedMinutes() == nil && state.lock.withLock { state.removed.contains(2) } : postedMinutes() == Int(shown) / 60),
+          "\(mode): the log posts the time shown (Teamwork completes its own timer when it holds the time)")
+    state.lock.withLock { state.body = nil }
+    _ = await store.log(timer(1), seconds: store.elapsed(timer(1)), durationEdited: false, description: "", billable: false, markTaskComplete: false)
+    check(mode == "normal" ? postedMinutes() == nil && state.lock.withLock { state.removed.contains(1) } : postedMinutes() == 5,
+          "\(mode): an edited paused timer logs 0:05 (Teamwork completes its own timer when it holds the time)")
+    try store.signOut()
+}
+// Idle removal Teamwork can't take is kept locally, and "Remove and Stop" still pauses.
+state.lock.withLock { state.mode = "put-fails"; state.removed = []; state.durations = [:]; state.running = [2: .now.addingTimeInterval(-3600)] }
+try await store.signIn(site: "idle.teamwork.com", token: "placeholder")
+await store.refresh()
+state.lock.withLock { state.calls = [] }
+await store.removeIdle(from: .now.addingTimeInterval(-600), to: .now, timer: timer(2), session: store.sessionID, stop: true)
+check(near(store.adjustments[2] ?? 0, 600) && near(store.elapsed(timer(2)), 3000), "a failed idle write keeps the removal locally")
+check(state.lock.withLock { state.calls.contains { $0.hasSuffix("PUT /projects/api/v3/me/timers/2/pause.json?page=1") } },
+      "Remove and Stop pauses the timer")
+try store.signOut()
+state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
 
 // Targets: Teamwork's working hours from sign-in; a custom day applies at once and is remembered.
 let day = { (number: Int) in Calendar.current.dateInterval(of: .day, for: Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: number))!)! }

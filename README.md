@@ -28,7 +28,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 - **Pinned tasks.** Pin the work you repeat and start it with ⌘1–⌘9.
 - **Starred projects, Due Today and Recent** at the top of every picker. Search any task or project, or paste a Teamwork task link.
 - **Log with care.** Edit the duration (`1:30`, `1.5h`, `90m`), round up or down to a step you choose, mark the task complete, or log every timer at once.
-- **Edit as you go.** Move a running timer to another task, change notes and billable, and edit or delete logged entries.
+- **Edit as you go.** Move a running timer to another task, change its notes, billable or tracked time, and edit or delete logged entries.
 - **Idle detection.** Come back from a break and choose to keep the idle time, or remove it and continue or stop.
 - **Reminders.** A nudge at the end of the working day if timers are left, and an alert for timers left running too long.
 - **A library window.** Timers, Today, This Week, Pinned, Starred Projects and My Tasks, with Settings and your account in the same window.

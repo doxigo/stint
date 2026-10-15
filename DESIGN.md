@@ -283,7 +283,7 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 
 | Feature | Where | API |
 |---|---|---|
-| Edit a running/paused timer: move to another task, notes, billable; time kept | Timer row Edit icon (on hover), or right-click › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only) |
+| Edit a running/paused timer: move to another task, notes, billable, tracked time (0:00–24:00; a running timer carries on from it) | Timer row Edit icon (on hover), or right-click › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only; `seconds` replaces the timer's runs with one that long) |
 | Daily target | Popover footer ring "Today 5:40 of 8:00"; Today/Week bar and "x of y" per weekday | Working hours per weekday (v3 `workload.json` include), else `lengthOfDay` from v3 `me` (Mon–Fri); Settings › General can set your own day |
 | Due Today | Popover section between Pinned and Recent | `tasks.json?responsiblePartyIds&taskFilter=today` |
 | Task links | Paste into the search field, or drop on the popover/window to start | `GET /tasks/{id}.json` |
@@ -301,7 +301,9 @@ All of these are checked visually in the preview build. Task links and the worki
   - Never rounds to zero.
   - A rounded value is posted as a time entry; an unrounded, untouched one still uses Teamwork's "complete".
 
-**Idle time:** removed idle time is stored locally per timer and subtracted when you log. The v3 timer edit can't change duration, so the entry is posted directly (`POST …/time.json`) and the timer deleted. Until then the web app shows the full time.
+**Idle time:** removing idle time sets the timer's time on Teamwork the same way as an edit (below), so the web app agrees and an untouched timer still logs with Teamwork's "complete"; a running timer keeps the time it counted while the prompt was up. If Teamwork doesn't take it (the request fails, or the server ignores `seconds`), Stint keeps the difference locally and subtracts it when you log, so the entry is posted directly (`POST …/time.json`) and the timer deleted.
+
+**Edited time:** the Edit form sends `seconds` so Teamwork holds the new time and the web app agrees; any local idle adjustment is dropped. If the timer still reads otherwise after the edit (a server that ignores `seconds`), Stint keeps the difference locally, like idle time, and the form notes that the web app shows the original time until it's logged.
 
 ### Build and run
 ```sh

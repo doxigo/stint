@@ -83,9 +83,12 @@ actor TeamworkClient {
     }
 
     /// Sends the whole timer (not just the changed fields) in case the edit endpoint replaces rather than merges.
-    /// `target` moves the timer to another project/task; its tracked time stays.
-    func update(_ timer: TWTimer, target: WorkItem? = nil, description: String, billable: Bool) async throws {
+    /// `target` moves the timer to another project/task; its tracked time stays unless `seconds` sets it
+    /// (Teamwork replaces the timer's runs with one that long; a running timer carries on from there).
+    func update(_ timer: TWTimer, target: WorkItem? = nil, description: String, billable: Bool,
+                seconds: TimeInterval? = nil) async throws {
         var body: [String: Any] = ["description": description, "isBillable": billable, "isRunning": timer.running]
+        if let seconds { body["seconds"] = Int(seconds) }
         if let projectId = target?.projectId ?? timer.projectId { body["projectId"] = projectId }
         if let target {
             body["taskId"] = target.taskId.map { $0 as Any } ?? NSNull() // project-only clears the task

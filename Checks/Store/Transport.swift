@@ -13,6 +13,18 @@ final class MockState: @unchecked Sendable {
     var delay = false
     var delayedStarted = false
     var user = 1
+    /// Timer seconds set through `seconds` on PUT (paused timers, default 600), and running timers' start.
+    var durations: [Int: Int] = [:]
+    var running: [Int: Date] = [:]
+    /// URLSession hands protocols the body as a stream.
+    static func json(_ request: URLRequest) -> [String: Any]? {
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+        while case let count = stream.read(&buffer, maxLength: buffer.count), count > 0 { data.append(buffer, count: count) }
+        stream.close()
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
     func response(_ request: URLRequest) -> (Int, String, Double) {
         lock.withLock {
             let url = request.url!, path = url.path, verb = request.httpMethod ?? "GET"
@@ -24,14 +36,7 @@ final class MockState: @unchecked Sendable {
             }
             if verb == "POST", path.hasSuffix("/timers.json") { return (403, "{}", 0) }
             if verb == "POST", path.hasSuffix("/time.json") {
-                // URLSession hands protocols the body as a stream.
-                if let stream = request.httpBodyStream {
-                    stream.open()
-                    var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
-                    while case let count = stream.read(&buffer, maxLength: buffer.count), count > 0 { data.append(buffer, count: count) }
-                    stream.close()
-                    body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                }
+                body = Self.json(request)
                 let id = Int(path.split(separator: "/").dropLast().last!)!
                 if mode == "partial", id == 202, !failedSecond { failedSecond = true; return (403, "{}", 0) }
                 posts[id, default: 0] += 1
@@ -42,6 +47,15 @@ final class MockState: @unchecked Sendable {
                 removed.insert(Int(path.split(separator: "/").dropLast().last!)!)
                 return (200, "{}", 0)
             }
+            // Edit: `seconds` replaces the runs with one that long; "ignore-seconds" plays a server that drops it,
+            // "put-fails" one that can't be reached.
+            if verb == "PUT", path.contains("/timers/"), let id = Int(path.split(separator: "/").last!.dropLast(5)) {
+                if mode == "put-fails" { return (503, "{}", 0) }
+                if mode != "ignore-seconds", let seconds = (Self.json(request)?["timer"] as? [String: Any])?["seconds"] as? Int {
+                    if running[id] != nil { running[id] = .now.addingTimeInterval(-Double(seconds)) } else { durations[id] = seconds }
+                }
+                return (200, "{}", 0)
+            }
             if verb == "DELETE", path.contains("/timers/") {
                 if deleteFails { return (500, "{}", 0) }
                 removed.insert(Int(path.split(separator: "/").last!.split(separator: ".").first!)!)
@@ -50,7 +64,10 @@ final class MockState: @unchecked Sendable {
             if path.hasSuffix("/timers.json"), mode == "offline-once" { mode = "normal"; return (503, "{}", 0) }
             if path.hasSuffix("/timers.json") {
                 let ids = [1, 2].filter { !removed.contains($0) }
-                let rows = ids.map { "{\"id\":\($0),\"running\":false,\"duration\":600,\"projectId\":\($0 == 1 ? 101 : 202)}" }.joined(separator: ",")
+                let rows = ids.map { id in
+                    let started = running[id].map { ",\"running\":true,\"lastStartedAt\":\"\($0.formatted(.iso8601))\"" } ?? ",\"running\":false"
+                    return "{\"id\":\(id),\"duration\":\(running[id] == nil ? durations[id] ?? 600 : 0),\"projectId\":\(id == 1 ? 101 : 202)\(started)}"
+                }.joined(separator: ",")
                 if mode == "late", url.host == "a.teamwork.com", !delayedStarted {
                     delayedStarted = true
                     return (200, "{\"timers\":[{\"id\":999,\"description\":\"A private notes\",\"running\":false,\"duration\":60,\"projectId\":101}],\"included\":{}}", 0.3)

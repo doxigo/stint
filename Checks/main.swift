@@ -69,12 +69,20 @@ check(tasks.count == 2 && tasks.allSatisfy { $0.projectId == 411598 && $0.taskli
 // Typed durations.
 for (input, seconds) in [("1:30", 5400.0), (":45", 2700), ("1.5", 5400), ("1,5", 5400), ("90m", 5400), ("1h30", 5400),
                          ("1h 30m", 5400), ("2h", 7200), ("1.5h", 5400), ("45 min", 2700), ("45 minutes", 2700),
-                         ("1hours", 3600), (".5", 1800)] {
+                         ("1hours", 3600), (".5", 1800), ("530", 19800), ("1230", 45000), ("045", 2700),
+                         ("0530", 19800), ("5", 18000), ("12", 43200)] {
     check(parseDuration(input) == seconds, "parse \(input)")
 }
-for bad in ["", "0", "abc", "1:75", "25h", "h", "m30", "1x", "-0:30", "1:-5", "-1", "0x2", "2e1", "1e3", "1.2.3"] {
+for bad in ["", "0", "abc", "1:75", "25h", "h", "m30", "1x", "-0:30", "1:-5", "-1", "0x2", "2e1", "1e3", "1.2.3",
+            "575", "2530", "12345"] {
     check(parseDuration(bad) == nil, "reject '\(bad)'")
 }
+for (typed, shown) in [("5", "5"), ("53", "53"), ("530", "5:30"), ("5:301", "53:01"), ("1230", "12:30"), ("12:3", "1:23"),
+                       (":45", ":45"), ("1.5h", "1.5h"), ("90m", "90m"), ("12:305", "12:30"), ("", "")] {
+    check(durationWithColon(typed, previous: "12:30") == shown, "colon as you type: '\(typed)' → '\(shown)'")
+}
+check(parseDuration("0:00", allowZero: true) == 0 && parseDuration("0", allowZero: true) == 0
+      && parseDuration("24:00", allowZero: true) == 86400 && parseDuration("24:01", allowZero: true) == nil, "a timer's time may be 0:00")
 
 // Rounding: whole minutes to the step; never to zero.
 let m = { (minutes: Double) in minutes * 60 }
