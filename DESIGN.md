@@ -10,7 +10,7 @@ This file holds the reverse-engineering findings and the five design deliverable
 
 | # | Decision | Chosen |
 |---|---|---|
-| D1 | **Sign-in.** The old app's OAuth client ID/secret are hard-coded in its bundle; we must not reuse them. | **Both in M1.** A personal API token (Basic auth), and Launchpad OAuth using *your own* registered client (ID/secret entered in Settings, stored in Keychain, never bundled; loopback redirect). |
+| D1 | **Sign-in.** The old app's OAuth client ID/secret are hard-coded in its bundle; we must not reuse them. | **Both in M1.** A personal API token (Basic auth), and Launchpad OAuth using *your own* registered client (ID/secret entered in Settings, stored in Keychain; loopback redirect). **For Teamwork's integrations directory:** Stint's own client, injected at build time from CI secrets, with a `stint://` redirect. See [Built-in sign-in](#built-in-sign-in). |
 | D2 | **Where timers live.** Old app: local-only NeDB, never synced. | **Teamwork v3 server timers** (`/projects/api/v3/me/timers`). |
 | D3 | **Minimum macOS.** | macOS 26 (Tahoe): Liquid Glass comes free from system components; Apple-silicon native. |
 | D4 | **Toolchain.** Only Command Line Tools are installed (Swift 6.4, macOS 27 SDK); no Xcode. | SwiftPM + a small bundling script. Install Xcode later for Icon Composer, notarization and Instruments. |
@@ -193,7 +193,7 @@ In the popover, pinned items use `⌘1`–`⌘9` because plain digits would land
 | Projects/tasks cache | memory (+ disk cache later) | fetched once, refreshed on ⌘R or wake |
 
 **Structure (Swift 6 strict concurrency):**
-- `actor TeamworkClient`: the single HTTP layer with async functions; owns auth headers.
+- `actor TeamworkClient`: the single HTTP layer with async functions; owns auth headers and rate-limit retries.
 - `@MainActor @Observable final class Store`: timers, pins, selection, plus the command handlers.
 - Views are pure, and live time uses `Text(timerInterval:)` / `TimelineView`. **No app-level ticking timer.**
 - **Undo:** an `UndoManager` covers local edits (pins, inspector fields). Destructive server actions (delete timer, discard) use an optimistic 5 s Undo toast before the request is sent.
@@ -304,6 +304,33 @@ All of these are checked visually in the preview build. Task links and the worki
 **Idle time:** removing idle time sets the timer's time on Teamwork the same way as an edit (below), so the web app agrees and an untouched timer still logs with Teamwork's "complete"; a running timer keeps the time it counted while the prompt was up. If Teamwork doesn't take it (the request fails, or the server ignores `seconds`), Stint keeps the difference locally and subtracts it when you log, so the entry is posted directly (`POST …/time.json`) and the timer deleted.
 
 **Edited time:** the Edit form sends `seconds` so Teamwork holds the new time and the web app agrees; any local idle adjustment is dropped. If the timer still reads otherwise after the edit (a server that ignores `seconds`), Stint keeps the difference locally, like idle time, and the form notes that the web app shows the original time until it's logged.
+
+### Rate limiting
+
+Teamwork allows about 150 requests a minute and answers 429 beyond that. `TeamworkClient.send` handles it for every request:
+- **Wait:** `Retry-After` in seconds (capped at 5 minutes), else Teamwork's documented 60 s. An HTTP-date `Retry-After` also gets 60 s.
+- **Everyone waits:** after a 429, no request goes out until the wait ends, so paging through a large list or a burst of requests doesn't keep hitting the limit.
+- **Retries:** up to 3 per request, then the 429 surfaces as an error ("still rate-limiting… try again in a minute").
+- **Writes:** a 429 is refused before Teamwork processes the request, so a time entry's POST is sent again too. Any other failure still goes through the log receipt: a 5xx or timeout leaves the receipt `uncertain` and is never retried automatically. A log refused by every attempt clears its receipt, like any other 4xx, so you can log again.
+- **Status:** while requests wait, the error banner area shows "Teamwork is rate-limiting; retrying…" in secondary text (announced to VoiceOver). It isn't an error and can't be dismissed.
+
+### Built-in sign-in
+
+For Teamwork's integrations directory, Stint signs in with its own Developer Portal app, not one each user registers.
+- **Redirect:** `stint://oauth/callback`, a private-use scheme in `CFBundleURLTypes`. Teamwork's App Login Flow accepts custom protocols. Its verification checklist asks for https-only redirects, and localhost redirects were sunset for dynamically registered apps on 1 Aug 2026. macOS delivers the redirect as a URL Apple event. `AppDelegate` takes it before SwiftUI would route it to a scene, and `AppRedirect` accepts it only with the sign-in's `state`.
+  - A headless probe confirmed that a SwiftUI-lifecycle app with this handler receives the event and opens no window.
+  - Not yet exercised: the browser → LaunchServices → Stint hop, which needs an installed build and a registered client.
+- **Client:** `bundle.sh` writes `TEAMWORK_CLIENT_ID` and, if set, `TEAMWORK_CLIENT_SECRET` into the built app's Info.plist. The release workflow passes them from GitHub secrets of the same names. The repo's Info.plist never has them; `Checks/bundle.py` checks both.
+- **Sign-in screen:** with a built-in client, Account shows one **Sign in with Teamwork** button. **Advanced** reveals API Token and Your Own App. Without one (local builds, forks), it falls back to those two, as before.
+- **Your own app** also accepts `stint://oauth/callback` as its redirect. The loopback default (`http://localhost:8123`) stays, so existing registrations keep working.
+
+**The secret-exposure question (open; Teamwork decides).** Launchpad's token exchange (`POST /launchpad/v1/token.json`) requires `client_secret` and has no PKCE. A desktop app can't keep a secret: anything in a public DMG can be read out of the bundle in minutes (`plutil -p Stint.app/Contents/Info.plist`; obfuscation only slows that down).
+- **What a leaked secret allows:** someone else can run the code exchange as Stint, for example a malicious local app that registers `stint:` too and catches a redirect. They still need the user to sign in and approve. Without PKCE, the private-use scheme is the weak point either way.
+- **The code is ready for each answer:**
+  1. *Shipping the secret is acceptable* (common for desktop OAuth without PKCE): set both GitHub secrets. Nothing else changes.
+  2. *Teamwork treats Stint as a public client* (exchange without a secret, or PKCE added later): set only `TEAMWORK_CLIENT_ID`. The exchange then leaves `client_secret` out. PKCE would add `code_challenge` to `Launchpad.loginURL` and `code_verifier` to `Launchpad.tokenRequest`.
+  3. *The secret must stay server-side:* a small token-exchange endpoint (for example a Cloudflare Worker) holds the secret and turns the code into a token. Stint would post the code there instead of to Launchpad, a change confined to `Launchpad.tokenRequest`. Not built: it adds a service to run.
+- **Also Teamwork's to confirm:** whether a `stint://` redirect can be registered as is (their example is `customprotocolapp://…`). A reverse-DNS scheme (`com.doxigo.stint:/oauth`) avoids accidental clashes with another app. Switching changes `appRedirect`, Info.plist and their checks.
 
 ### Build and run
 ```sh

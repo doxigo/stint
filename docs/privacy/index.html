@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · Stint for Teamwork.com</title>
+<meta name="description" content="What Stint stores on your Mac, what it sends to Teamwork.com, and how to delete it. No analytics, no tracking, no servers of our own.">
+<link rel="canonical" href="https://doxigo.github.io/stint/privacy/">
+<meta name="theme-color" content="#1d1c39">
+<link rel="icon" href="../assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="../assets/icon.png">
+<link rel="preload" href="../assets/work-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../assets/icon.png" alt="" width="32" height="32">Stint</a>
+    <nav aria-label="Site">
+      <a href="../help/">Help</a>
+      <a href="./" aria-current="page">Privacy</a>
+      <a href="../terms/">Terms</a>
+      <a href="https://github.com/doxigo/stint">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap">
+      <h1>Privacy policy<span class="dot">.</span></h1>
+      <p>Stint connects your Mac to your own Teamwork.com account, and nothing else. This page explains exactly what that means.</p>
+    </div>
+  </div>
+
+  <div class="wrap doc">
+    <nav class="toc" aria-labelledby="toc-title">
+      <h2 id="toc-title">On this page</h2>
+      <ol>
+        <li><a href="#summary">In short</a></li>
+        <li><a href="#who">Who we are</a></li>
+        <li><a href="#network">What Stint sends, and where</a></li>
+        <li><a href="#on-your-mac">What Stint keeps on your Mac</a></li>
+        <li><a href="#idle">Idle detection</a></li>
+        <li><a href="#sharing">Sharing</a></li>
+        <li><a href="#retention">How long data is kept</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#delete">Delete your data</a></li>
+        <li><a href="#website">This website</a></li>
+        <li><a href="#rights">Your rights</a></li>
+        <li><a href="#changes">Changes</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ol>
+    </nav>
+
+    <article class="prose">
+      <p class="updated">Effective 16 October 2026</p>
+
+      <section>
+        <h2 id="summary">In short</h2>
+        <ul>
+          <li>Stint reads and writes your timers and time entries in your own Teamwork.com account. That's the only service it talks to.</li>
+          <li>Your sign-in is stored in the macOS Keychain on your Mac.</li>
+          <li>Stint has no analytics, tracking, advertising or crash reporting, and no servers of its own. We, the developers, never receive any of your data.</li>
+          <li>Stint's source code is public on <a href="https://github.com/doxigo/stint">GitHub</a>, so you can check everything on this page.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="who">Who we are</h2>
+        <p>Stint is an independent Mac app published by Sohail Lajevardi (“we”, “us”). It's not made or endorsed by Teamwork.com. This policy covers the Stint app for macOS and this website.</p>
+      </section>
+
+      <section>
+        <h2 id="network">What Stint sends, and where</h2>
+        <p>Stint connects to two places, both run by Teamwork.com, and always over HTTPS.</p>
+
+        <h3>Your Teamwork site</h3>
+        <p>This is the address you sign in with, such as <code>https://acme.teamwork.com</code>, or the API address that Teamwork gives Stint when you use Teamwork Sign-In. Stint uses Teamwork's API to:</p>
+        <ul>
+          <li>read your profile: your user ID, name, and working hours or day length, which set your daily target;</li>
+          <li>read your timers and time entries, and the tasks and projects you can see in Teamwork, including your starred projects and the tasks assigned to you;</li>
+          <li>make the changes you ask for: start, pause, edit and delete timers; log, edit and delete time; mark tasks complete; and star or unstar projects.</li>
+        </ul>
+        <p>Every request carries your API token or access token, so Teamwork knows it's you. Stint checks for changes every 15 seconds while you're signed in, so timers started on the web appear in Stint.</p>
+
+        <h3>Teamwork Sign-In, on teamwork.com</h3>
+        <p>Only if you sign in with Teamwork Sign-In: your browser opens Teamwork's sign-in page at <code>www.teamwork.com</code>, and you sign in there. Stint never sees your Teamwork password. Teamwork then sends your browser back to Stint with a one-time code. Stint sends that code, with your Teamwork app's client ID, client secret and redirect address, to Teamwork's Launchpad service at <code>www.teamwork.com</code>, which returns an access token and your site's API address.</p>
+        <p>To receive the code, Stint briefly listens on a local address on your Mac, such as <code>http://localhost:8123</code>. It accepts connections from your Mac only, checks that the code answers the sign-in it started, and stops listening when sign-in finishes, is cancelled, or times out after five minutes.</p>
+
+        <h3>Nothing else</h3>
+        <p>Stint makes no other network connections. There's no analytics, telemetry, crash reporting, advertising, tracking, or update check, and Stint contains no third-party code: it's built only with Apple's own frameworks. Reminders are notifications scheduled on your Mac, not sent from a server.</p>
+        <p>When you click a link in Stint, such as a task's title, <strong>Open Teamwork in Browser</strong>, or <strong>Open Developer Portal</strong>, it opens in your web browser, which handles it under its own privacy policy and the website's.</p>
+        <p>What happens to your data inside Teamwork is covered by Teamwork's <a href="https://www.teamwork.com/legal/privacy-notice/">Privacy Notice</a>.</p>
+      </section>
+
+      <section>
+        <h2 id="on-your-mac">What Stint keeps on your Mac</h2>
+        <p>Everything Stint stores stays on your Mac, in your user account. None of it is sent to us.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">What</th><th scope="col">Where</th><th scope="col">Contains</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Sign-in</td>
+                <td>macOS Keychain, service <code>com.doxigo.TeamworkTimer</code></td>
+                <td>Your Teamwork site address, and your API token or access token. If you use Teamwork Sign-In with your own Teamwork app, its client secret too.</td>
+              </tr>
+              <tr>
+                <td>Settings</td>
+                <td><code>~/Library/Preferences/com.doxigo.TeamworkTimer.plist</code></td>
+                <td>Your preferences, and what you typed in the sign-in form (site, client ID, redirect address). For each account: your pinned and recent tasks (project and task IDs, names and notes), and time adjustments to timers.</td>
+              </tr>
+              <tr>
+                <td>Log receipts</td>
+                <td><code>~/Library/Application Support/com.doxigo.TeamworkTimer/LogAttempts/</code></td>
+                <td>One small file per account, named with a one-way hash of the site and user ID. It lists the IDs of timers that were being logged and whether Teamwork confirmed each one, so an interrupted log is never sent twice.</td>
+              </tr>
+              <tr>
+                <td>Network cache</td>
+                <td><code>~/Library/Caches/com.doxigo.TeamworkTimer/</code> and <code>~/Library/HTTPStorages/com.doxigo.TeamworkTimer/</code></td>
+                <td>macOS's networking system can keep copies of recent responses from your Teamwork site, such as timers, time entries, and task and project names.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>While Stint is running, it also holds your timers, entries and task names in memory. If you turn on <strong>Open at login</strong>, macOS records Stint as a login item.</p>
+      </section>
+
+      <section>
+        <h2 id="idle">Idle detection</h2>
+        <p>To notice when you step away from a running timer, Stint reads how many seconds have passed since your last keyboard, mouse or trackpad input, and when your Mac goes to sleep and wakes. It never records what you type or click, what's on your screen, or which apps you use, and it doesn't store or send any of this. Stint doesn't need Accessibility, Input Monitoring or Screen Recording permission.</p>
+      </section>
+
+      <section>
+        <h2 id="sharing">Sharing</h2>
+        <p>We don't collect your data, so we don't sell or share it. Stint sends data only to Teamwork, when you use it.</p>
+      </section>
+
+      <section>
+        <h2 id="retention">How long data is kept</h2>
+        <p>Data on your Mac stays until you delete it. Signing out removes your sign-in from the Keychain right away; the rest stays so your pins and settings are there when you sign back in. Time you log in Teamwork stays in your Teamwork account, under Teamwork's terms, even if you delete Stint.</p>
+      </section>
+
+      <section>
+        <h2 id="security">Security</h2>
+        <ul>
+          <li>Your token is kept in the macOS Keychain, which encrypts it and asks you before any other app can read it.</li>
+          <li>Stint connects to Teamwork over HTTPS only, and refuses a Teamwork Sign-In whose API address isn't HTTPS.</li>
+          <li>Teamwork Sign-In uses a random, single-use value to make sure a code really answers the sign-in Stint started.</li>
+          <li>The log receipts folder can be read only by your macOS user account.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="delete">Delete your data</h2>
+        <ol>
+          <li>In Stint's Settings, choose <strong>Account</strong>, then <strong>Sign Out</strong>. This removes your token from the Keychain.</li>
+          <li>Turn off <strong>Open at login</strong> if it's on. Quit Stint and move it from Applications to the Trash.</li>
+          <li>To remove Stint's settings and files, run these in Terminal:
+            <pre><code>defaults delete com.doxigo.TeamworkTimer
+rm -rf ~/Library/Application\ Support/com.doxigo.TeamworkTimer \
+  ~/Library/Caches/com.doxigo.TeamworkTimer \
+  ~/Library/HTTPStorages/com.doxigo.TeamworkTimer \
+  ~/Library/HTTPStorages/com.doxigo.TeamworkTimer.binarycookies</code></pre>
+          </li>
+          <li>To remove any Keychain items that are left, open Keychain Access, search for <code>com.doxigo.TeamworkTimer</code>, and delete what it finds. Or run this in Terminal until it says the item couldn't be found:
+            <pre><code>security delete-generic-password -s com.doxigo.TeamworkTimer</code></pre>
+          </li>
+        </ol>
+        <p>This removes everything Stint stored on your Mac. It doesn't change anything in your Teamwork account. If you signed in with your own Teamwork app, you can also delete that app in your site's Developer Portal.</p>
+      </section>
+
+      <section>
+        <h2 id="website">This website</h2>
+        <p>This website is a set of static pages hosted on GitHub Pages. It sets no cookies and has no analytics, tracking or third-party scripts, and its fonts are served from this site. GitHub, which hosts the site and the Stint downloads, may log technical information such as your IP address to run and secure its service. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's General Privacy Statement</a>.</p>
+      </section>
+
+      <section>
+        <h2 id="rights">Your rights</h2>
+        <p>Depending on where you live, you may have the right to access, correct or delete personal data held about you. We don't hold any: what Stint stores is on your own Mac, where you can delete it as described above, and everything else is in your Teamwork account. For data in Teamwork, use Teamwork's own tools or contact Teamwork.</p>
+      </section>
+
+      <section>
+        <h2 id="changes">Changes</h2>
+        <p>If a new version of Stint changes how it handles data, we'll update this page and its effective date when that version is released. Earlier versions of this policy are in the <a href="https://github.com/doxigo/stint/commits/main/docs/privacy/index.html">project's history on GitHub</a>.</p>
+      </section>
+
+      <section>
+        <h2 id="contact">Contact</h2>
+        <p>Questions about this policy? <a href="https://github.com/doxigo/stint/issues">Open an issue on GitHub</a>. Please don't include your API token or any other secret.</p>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row">
+    <div>
+      <p><strong>Stint for Teamwork</strong></p>
+      <p>An independent project, not made or endorsed by Teamwork.com. “Teamwork” and “Teamwork.com” are trademarks of their owner, used here only to say what Stint works with.</p>
+      <p>© 2026 Sohail Lajevardi</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="../">Home</a>
+      <a href="../help/">Help</a>
+      <a href="../terms/">Terms</a>
+      <a href="https://github.com/doxigo/stint">Source code</a>
+      <a href="https://github.com/doxigo/stint/issues">Report an issue</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

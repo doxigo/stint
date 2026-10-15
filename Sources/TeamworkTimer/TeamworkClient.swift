@@ -8,6 +8,7 @@ struct APIError: LocalizedError {
         switch status {
         case 401: "Teamwork rejected the sign-in (401). Sign in again in Settings."
         case 403: "Teamwork denied access (403).\(reason.map { " \($0)" } ?? "")"
+        case 429: "Teamwork is still rate-limiting requests (429). Try again in a minute."
         default: "Teamwork returned \(status). \(reason ?? detail)"
         }
     }
@@ -27,8 +28,19 @@ struct APIError: LocalizedError {
 actor TeamworkClient {
     let credentials: Credentials
     private let decoder = TeamworkClient.makeDecoder()
+    /// Told when requests start (true) and stop (false) waiting out a rate limit, for a status line.
+    private let onRateLimit: (@MainActor @Sendable (Bool) -> Void)?
+    /// After a 429, no request goes out before this.
+    private var resumeAt = Date.distantPast
+    private var waiting = 0
 
-    init(credentials: Credentials) { self.credentials = credentials }
+    /// Retries of one request after 429s (Teamwork allows about 150 requests a minute).
+    static let rateLimitRetries = 3
+
+    init(credentials: Credentials, onRateLimit: (@MainActor @Sendable (Bool) -> Void)? = nil) {
+        self.credentials = credentials
+        self.onRateLimit = onRateLimit
+    }
 
     static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
@@ -245,12 +257,44 @@ actor TeamworkClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            throw APIError(status: status, detail: String(decoding: data.prefix(300), as: UTF8.self))
+        var retries = 0
+        while true {
+            try await waitOutRateLimit()
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
+            // A 429 is refused before Teamwork processes the request, so even a time entry's POST is safe to send
+            // again. Every request waits, so paging through a large list doesn't keep hitting the limit.
+            if status == 429, retries < Self.rateLimitRetries {
+                retries += 1
+                resumeAt = max(resumeAt, .now.addingTimeInterval(Self.retryDelay(http?.value(forHTTPHeaderField: "Retry-After"))))
+                continue
+            }
+            guard (200..<300).contains(status) else {
+                throw APIError(status: status, detail: String(decoding: data.prefix(300), as: UTF8.self))
+            }
+            return data
         }
-        return data
+    }
+
+    private func waitOutRateLimit() async throws {
+        guard resumeAt > .now else { return }
+        waiting += 1
+        if waiting == 1 { await onRateLimit?(true) }
+        var failure: (any Error)?
+        while failure == nil, case let delay = resumeAt.timeIntervalSinceNow, delay > 0 {
+            do { try await Task.sleep(for: .seconds(delay)) } catch { failure = error }
+        }
+        waiting -= 1
+        if waiting == 0 { await onRateLimit?(false) }
+        if let failure { throw failure }
+    }
+
+    /// Seconds to wait after a 429: `Retry-After` (capped at 5 minutes), else Teamwork's documented 60.
+    // ponytail: delay-seconds only; an HTTP-date Retry-After gets the 60 s default.
+    static func retryDelay(_ retryAfter: String?) -> TimeInterval {
+        guard let seconds = retryAfter.flatMap({ Int($0.trimmingCharacters(in: .whitespaces)) }), seconds >= 0 else { return 60 }
+        return TimeInterval(min(seconds, 300))
     }
 }
 

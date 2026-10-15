@@ -181,6 +181,45 @@ let stateOne = try Launchpad.makeState(), stateTwo = try Launchpad.makeState()
 check(stateOne != stateTwo && Data(base64Encoded: stateOne)?.count == 32, "oauth uses random 256-bit state")
 check(URLComponents(url: Launchpad.loginURL(clientID: "client", redirect: redirect, state: stateOne), resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "state", value: stateOne)) == true, "oauth sends state")
 check(Launchpad.loginURL(clientID: "client", redirect: redirect, state: "a+b").absoluteString.contains("state=a%2Bb"), "oauth encodes plus in state")
+// The app's own redirect (stint://oauth/callback), checked like the loopback one.
+check(oauthRedirect("stint://oauth/callback") == appRedirect, "the app redirect is a valid redirect")
+for bad in ["stint://oauth/other", "stint://evil/callback", "stint://oauth/callback?x=1", "other://oauth/callback"] {
+    check(oauthRedirect(bad) == nil, "invalid redirect \(bad)")
+}
+func appCallback(_ text: String) -> [String: String] { callbackQuery(fromURL: URL(string: text)!, redirect: appRedirect, state: "expected") }
+check(appCallback("stint://oauth/callback?code=abc123&state=expected")["code"] == "abc123", "app redirect verified code")
+check(appCallback("STINT://oauth/callback?error=access_denied&state=expected")["error"] == "access_denied", "app redirect verified error")
+for bad in ["stint://oauth/callback?code=abc", "stint://oauth/callback?code=abc&state=wrong", "stint://oauth/other?code=abc&state=expected",
+            "stint://evil/callback?code=abc&state=expected", "stint://oauth/callback?code=abc&state=expected&state=wrong",
+            "stint://oauth/callback?code=abc&error=denied&state=expected", "stint://user@oauth/callback?code=abc&state=expected",
+            "other://oauth/callback?code=abc&state=expected"] {
+    check(appCallback(bad).isEmpty, "reject app redirect \(bad)")
+}
+let waiting = Task { try await AppRedirect.waitForCode(state: "expected") }
+await Task.yield()
+AppRedirect.handle(URL(string: "stint://oauth/callback?code=forged&state=wrong")!)
+AppRedirect.handle(URL(string: "stint://oauth/callback?code=abc123&state=expected")!)
+check(try await waiting.value == "abc123", "the app redirect hands over the code for this sign-in only")
+AppRedirect.handle(URL(string: "stint://oauth/callback?code=late&state=expected")!) // nothing pending: ignored
+let denied = Task { try await AppRedirect.waitForCode(state: "expected") }
+await Task.yield()
+AppRedirect.handle(URL(string: "stint://oauth/callback?error=access_denied&state=expected")!)
+do { _ = try await denied.value; check(false, "a refused sign-in fails") } catch { check("\(error.localizedDescription)".contains("access_denied"), "a refused sign-in says why") }
+func tokenBody(secret: String?) throws -> [String: String]? {
+    let request = try Launchpad.tokenRequest(code: "c", clientID: "id", clientSecret: secret, redirect: appRedirect)
+    return try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: String]
+}
+check(try tokenBody(secret: "s") == ["code": "c", "client_id": "id", "client_secret": "s", "redirect_uri": "stint://oauth/callback"],
+      "the token exchange sends the secret when there is one")
+check(try tokenBody(secret: nil)?["client_secret"] == nil, "a client without a secret leaves it out")
+check(Launchpad.builtIn == nil, "no built-in app without build-time configuration")
+
+// Rate limiting: Retry-After in seconds, capped at 5 minutes; otherwise Teamwork's 60 s.
+for (header, delay) in [("120", 120.0), (" 0 ", 0), ("100000", 300), ("-5", 60), ("Wed, 21 Oct 2026 07:28:00 GMT", 60), ("nan", 60)] {
+    check(TeamworkClient.retryDelay(header) == delay, "Retry-After \(header) waits \(delay) s")
+}
+check(TeamworkClient.retryDelay(nil) == 60, "no Retry-After waits 60 s")
+check(APIError(status: 429, detail: "").errorDescription?.contains("rate-limiting") == true, "a lasting 429 says so")
 do { try Keychain.check(-25308); check(false, "Keychain propagates errors") } catch {}
 try Keychain.check(0)
 let overlap = TWTimer(id: 8, running: true, duration: 0, lastStartedAt: current, intervals: runs)

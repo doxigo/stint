@@ -9,6 +9,7 @@ import SwiftUI // IndexSet-based `move(fromOffsets:toOffset:)`
 final class Store {
     // ponytail: polling; switch to a push channel if Teamwork exposes one for timers
     static let pollSeconds = 15.0
+    static let rateLimitStatus = "Teamwork is rate-limiting; retrying…"
 
     enum Section: String, CaseIterable, Identifiable {
         case timers = "Timers", today = "Today", week = "This Week", pinned = "Pinned"
@@ -72,6 +73,8 @@ final class Store {
     /// Opens the main window from places without a SwiftUI environment (notification actions).
     @ObservationIgnored var openMainWindow: (() -> Void)?
     var errorMessage: String?
+    /// Requests are waiting out Teamwork's rate limit (HTTP 429) before retrying; a status, not an error.
+    private(set) var rateLimited = false
     /// A short confirmation after a successful write (`ToastOverlay` shows it). Failures go to `errorMessage`.
     private(set) var toast: Toast?
     @ObservationIgnored private var toastExpiry: Task<Void, Never>?
@@ -144,20 +147,34 @@ final class Store {
         try await connect(Credentials(kind: .apiToken, site: site, secret: token))
     }
 
+    /// "Sign in with Teamwork": Stint's built-in app, redirecting to `appRedirect`.
+    func signInWithTeamwork() async throws {
+        guard let app = Launchpad.builtIn else { throw SignInError("This build of Stint has no built-in Teamwork app.") }
+        try await connect(authorize(clientID: app.id, clientSecret: app.secret, redirect: appRedirect))
+    }
+
+    /// "Use your own app": a client the user registered in their Developer Portal.
     func signInWithOAuth(clientID: String, clientSecret: String, redirect: String) async throws {
         guard let redirect = oauthRedirect(redirect) else {
-            throw SignInError("Use an HTTP loopback redirect with a port from 1 to 65535, e.g. http://localhost:8123")
+            throw SignInError("Use \(appRedirect.absoluteString), or an HTTP loopback redirect with a port from 1 to 65535, e.g. http://localhost:8123")
         }
+        let credentials = try await authorize(clientID: clientID, clientSecret: clientSecret, redirect: redirect)
+        try? Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret") // convenience only; the code is already spent
+        try await connect(credentials)
+    }
+
+    /// Opens Teamwork's sign-in page and exchanges the code it redirects back with.
+    private func authorize(clientID: String, clientSecret: String?, redirect: URL) async throws -> Credentials {
         let state = try Launchpad.makeState()
-        async let code = LoopbackServer.waitForCode(on: redirect, state: state)
+        async let code = redirect == appRedirect ? AppRedirect.waitForCode(state: state)
+                                                 : LoopbackServer.waitForCode(on: redirect, state: state)
         guard NSWorkspace.shared.open(Launchpad.loginURL(clientID: clientID, redirect: redirect, state: state)) else {
             throw SignInError("The sign-in page could not be opened.")
         }
         let credentials = try await Launchpad.exchange(code: try await code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
         try Task.checkCancellation()
-        try? Keychain.set(Data(clientSecret.utf8), for: "oauthClientSecret") // convenience only; the code is already spent
         NSApp.activate()
-        try await connect(credentials)
+        return credentials
     }
 
     static func savedOAuthSecret() throws -> String? {
@@ -198,6 +215,7 @@ final class Store {
         showingNewTimer = false
         showingLogAll = false
         errorMessage = nil
+        rateLimited = false
         toast = nil
         idle?.reset()
         reminders.reset()
@@ -254,7 +272,12 @@ final class Store {
 
     private func activate(_ credentials: Credentials) {
         clearSession()
-        client = TeamworkClient(credentials: credentials)
+        let session = sessionID
+        client = TeamworkClient(credentials: credentials) { [weak self] waiting in
+            guard let self, sessionID == session else { return }
+            rateLimited = waiting
+            if waiting { AccessibilityNotification.Announcement(Self.rateLimitStatus).post() }
+        }
         site = credentials.site
         poller = Task { [weak self] in
             while !Task.isCancelled {

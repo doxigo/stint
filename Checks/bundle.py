@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ with tempfile.TemporaryDirectory(prefix='teamwork-bundle-checks-') as tmp:
     shutil.copy2('bundle.sh', root / 'bundle.sh')
     (root / 'Resources').mkdir()
     (root / 'Resources/AppIcon.icns').write_bytes(b'fixture')
-    (root / 'Info.plist').write_text('fixture')
+    (root / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'fixture'}))
     bin_dir = root / 'bin'
     bin_dir.mkdir()
     stub = bin_dir / 'stub'
@@ -28,14 +29,27 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     stub.chmod(0o755)
     for name in ['xcode-select', 'swift', 'codesign', 'ditto', 'xcrun', 'security', 'hdiutil']:
         (bin_dir / name).symlink_to(stub)
-    env = {key: value for key, value in os.environ.items() if key not in ['SIGNING_IDENTITY', 'NOTARY_PROFILE', 'NOTARY_KEYCHAIN', 'FAIL_NOTARY']}
+    env = {key: value for key, value in os.environ.items()
+           if key not in ['SIGNING_IDENTITY', 'NOTARY_PROFILE', 'NOTARY_KEYCHAIN', 'FAIL_NOTARY', 'TEAMWORK_CLIENT_ID', 'TEAMWORK_CLIENT_SECRET']}
     env.update(PATH=str(bin_dir) + os.pathsep + env['PATH'], CI='true')
     for identity, profile in [('', ''), ('ad-hoc', 'profile'), ('Developer ID Application: Fixture (TEST)', '')]:
         run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, SIGNING_IDENTITY=identity, NOTARY_PROFILE=profile), capture_output=True)
         assert run.returncode != 0, 'missing/invalid signing credentials must fail'
         assert not (root / '.build').exists(), 'signing preflight must run before building'
+    built = root / 'build/Stint.app/Contents/Info.plist'
+    run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1', TEAMWORK_CLIENT_ID='id "x"'), capture_output=True)
+    assert run.returncode == 0, run.stderr.decode()
+    info = plistlib.loads(built.read_bytes())
+    assert info.get('TeamworkClientID') == 'id "x"' and 'TeamworkClientSecret' not in info, 'a built-in client ID goes into the built app'
+    assert 'TeamworkClientID' not in plistlib.loads((root / 'Info.plist').read_bytes()), 'the source Info.plist is left alone'
+    (root / 'calls').unlink()
+    run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1', TEAMWORK_CLIENT_ID='id', TEAMWORK_CLIENT_SECRET='s'), capture_output=True)
+    assert run.returncode == 0, run.stderr.decode()
+    assert plistlib.loads(built.read_bytes()).get('TeamworkClientSecret') == 's', 'a built-in client secret goes in when CI has one'
+    (root / 'calls').unlink()
     run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1'), capture_output=True)
     assert run.returncode == 0, run.stderr.decode()
+    assert 'TeamworkClientID' not in plistlib.loads(built.read_bytes()), 'no built-in client without the secret'
     calls = (root / 'calls').read_text()
     assert 'codesign --force --sign -' in calls, 'explicit unsigned release is ad-hoc signed'
     assert 'notarytool' not in calls and 'stapler' not in calls, 'unsigned release never claims notarization'
@@ -59,4 +73,8 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     validate = next(i for i, line in enumerate(calls) if 'stapler validate build/Stint.dmg' in line)
     assert image < signed < submit < staple < validate, 'disk image is signed, then notarized, then stapled'
     assert '--options runtime' in calls[next(i for i, line in enumerate(calls) if line.startswith('codesign --force'))], 'app is signed with the hardened runtime first'
+# The app takes its sign-in redirect (appRedirect in Models.swift); the repo never carries a client.
+source = plistlib.loads(Path('Info.plist').read_bytes())
+assert ['stint'] in [kind.get('CFBundleURLSchemes') for kind in source.get('CFBundleURLTypes', [])], 'Info.plist registers stint://'
+assert not any(key.startswith('TeamworkClient') for key in source), 'Info.plist in the repo has no client ID or secret'
 print('All release packaging checks passed.')

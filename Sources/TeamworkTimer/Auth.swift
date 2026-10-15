@@ -68,8 +68,16 @@ struct SignInError: LocalizedError {
     init(_ message: String) { errorDescription = message }
 }
 
-/// Teamwork Launchpad OAuth (authorization-code flow) with the user's own registered client.
+/// Teamwork Launchpad OAuth (authorization-code flow), with Stint's built-in client or the user's own.
 enum Launchpad {
+    /// Stint's own Developer Portal app, when this build carries one. bundle.sh writes it into the built app's
+    /// Info.plist from TEAMWORK_CLIENT_ID and TEAMWORK_CLIENT_SECRET (GitHub secrets in CI); the repo never has it.
+    /// The secret is optional: a shipped secret can be read out of the app (see DESIGN.md, "Built-in sign-in").
+    static let builtIn: (id: String, secret: String?)? = {
+        let value = { (key: String) in (Bundle.main.object(forInfoDictionaryKey: key) as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        return value("TeamworkClientID").map { ($0, value("TeamworkClientSecret")) }
+    }()
+
     static func makeState() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         try Keychain.check(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes))
@@ -83,13 +91,19 @@ enum Launchpad {
         return components.url!
     }
 
-    static func exchange(code: String, clientID: String, clientSecret: String, redirect: URL) async throws -> Credentials {
+    /// Without a secret, `client_secret` is left out (only works if Teamwork accepts the client without one).
+    static func tokenRequest(code: String, clientID: String, clientSecret: String?, redirect: URL) throws -> URLRequest {
         var request = URLRequest(url: URL(string: "https://www.teamwork.com/launchpad/v1/token.json")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "code": code, "client_id": clientID, "client_secret": clientSecret, "redirect_uri": redirect.absoluteString,
-        ])
+        var body = ["code": code, "client_id": clientID, "redirect_uri": redirect.absoluteString]
+        body["client_secret"] = clientSecret
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    static func exchange(code: String, clientID: String, clientSecret: String?, redirect: URL) async throws -> Credentials {
+        let request = try tokenRequest(code: code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
@@ -168,6 +182,39 @@ enum LoopbackServer {
             } else {
                 receiveRequest(connection, data: buffer, complete: complete)
             }
+        }
+    }
+}
+
+/// Catches the browser's redirect to `appRedirect` (`stint://oauth/callback`), which macOS hands the app as a
+/// URL Apple event (`AppDelegate`), and returns the authorization code.
+@MainActor enum AppRedirect {
+    private static var pending: (state: String, once: Once<String>)?
+
+    static func waitForCode(state: String, timeout: TimeInterval = 300) async throws -> String {
+        let once = Once<String>()
+        pending = (state, once)
+        defer { if pending?.once === once { pending = nil } }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                once.set(continuation)
+                DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+                    once.resume(throwing: SignInError("Sign-in timed out. Try again."))
+                }
+            }
+        } onCancel: {
+            once.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Any `stint:` URL lands here; one that doesn't answer the sign-in in progress (wrong state, no sign-in) is ignored.
+    static func handle(_ url: URL) {
+        guard let pending else { return }
+        let query = callbackQuery(fromURL: url, redirect: appRedirect, state: pending.state)
+        if let code = query["code"] {
+            pending.once.resume(returning: code)
+        } else if let error = query["error"] {
+            pending.once.resume(throwing: SignInError("Teamwork sign-in failed: \(error)"))
         }
     }
 }

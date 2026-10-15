@@ -142,7 +142,7 @@ struct GeneralSettings: View {
 struct AccountSettings: View {
     enum Method: String, CaseIterable, Identifiable {
         case token = "API Token"
-        case oauth = "Teamwork Sign-In"
+        case oauth = "Your Own App"
         var id: Self { self }
     }
 
@@ -155,10 +155,14 @@ struct AccountSettings: View {
     /// Read from the Keychain only when the OAuth form shows: reading it on every draw asked for the
     /// login password whenever Account opened (once per build, as with any item; see `Keychain`).
     @State private var clientSecret = ""
+    /// With a built-in app, the API token and own-app forms sit under Advanced.
+    @State private var advanced = false
     @State private var signingIn: Task<Void, Never>?
+    @State private var inBrowser = false
     @State private var error: String?
 
     private var busy: Bool { signingIn != nil }
+    private var showsMethods: Bool { Launchpad.builtIn == nil || advanced }
 
     var body: some View {
         Form {
@@ -173,50 +177,66 @@ struct AccountSettings: View {
                     }
                 }
             } else {
-                Picker("Sign in with", selection: $method) {
-                    ForEach(Method.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                switch method {
-                case .token:
+                if Launchpad.builtIn != nil {
                     Section {
-                        TextField("Site", text: $site, prompt: Text("acme.teamwork.com"))
-                        SecureField("API token", text: $token)
+                        Button("Sign in with Teamwork") { run(inBrowser: true) { try await store.signInWithTeamwork() } }
+                            .keyboardShortcut(advanced ? nil : .defaultAction)
+                            .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
+                            .disabled(busy)
                     } footer: {
-                        Text("In Teamwork, open your profile, choose Edit My Details, then API & Mobile to copy your token. It's stored in your Keychain.")
+                        Text("Your browser opens Teamwork. Sign in there, then allow it to open Stint.")
                             .foregroundStyle(.secondary)
                     }
-                    Button("Sign In") { run { try await store.signIn(site: site, token: token) } }
-                        .keyboardShortcut(.defaultAction)
-                        .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
-                        .disabled(site.isEmpty || token.isEmpty || busy)
-                case .oauth:
                     Section {
-                        TextField("Client ID", text: $clientID, prompt: Text("Required"))
-                        SecureField("Client secret", text: $clientSecret, prompt: Text("Required"))
-                        TextField("Redirect URI", text: $redirect)
-                    } footer: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Teamwork Sign-In needs an app registered for your site:")
-                            Text("1. Open the Developer Portal and create an app.\n2. Add \(redirect) as a redirect URL.\n3. Copy the Client ID and secret from its Credentials tab.")
-                            Link("Open Developer Portal", destination: developerPortal)
-                            Text("Just for yourself? An API token is quicker. The secret is stored in your Keychain.")
+                        DisclosureGroup("Advanced", isExpanded: $advanced) {
+                            methodPicker
                         }
-                        .foregroundStyle(.secondary)
                     }
-                    Button("Sign In with Teamwork…") {
-                        run { try await store.signInWithOAuth(clientID: clientID, clientSecret: clientSecret, redirect: redirect) }
+                } else {
+                    methodPicker
+                }
+
+                if showsMethods {
+                    switch method {
+                    case .token:
+                        Section {
+                            TextField("Site", text: $site, prompt: Text("acme.teamwork.com"))
+                            SecureField("API token", text: $token)
+                        } footer: {
+                            Text("In Teamwork, open your profile, choose Edit My Details, then API & Mobile to copy your token. It's stored in your Keychain.")
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Sign In") { run { try await store.signIn(site: site, token: token) } }
+                            .keyboardShortcut(.defaultAction)
+                            .tint(Brand.purpleFill)
+                            .disabled(site.isEmpty || token.isEmpty || busy)
+                    case .oauth:
+                        Section {
+                            TextField("Client ID", text: $clientID, prompt: Text("Required"))
+                            SecureField("Client secret", text: $clientSecret, prompt: Text("Required"))
+                            TextField("Redirect URI", text: $redirect)
+                        } footer: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Your own app needs registering for your site:")
+                                Text("1. Open the Developer Portal and create an app.\n2. Add \(redirect) as a redirect URL (\(appRedirect.absoluteString) works too).\n3. Copy the Client ID and secret from its Credentials tab.")
+                                Link("Open Developer Portal", destination: developerPortal)
+                                Text("Just for yourself? An API token is quicker. The secret is stored in your Keychain.")
+                            }
+                            .foregroundStyle(.secondary)
+                        }
+                        Button("Sign In with Your App…") {
+                            run(inBrowser: true) { try await store.signInWithOAuth(clientID: clientID, clientSecret: clientSecret, redirect: redirect) }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .tint(Brand.purpleFill)
+                        .disabled(clientID.isEmpty || clientSecret.isEmpty || busy)
                     }
-                    .keyboardShortcut(.defaultAction)
-                    .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
-                    .disabled(clientID.isEmpty || clientSecret.isEmpty || busy)
                 }
 
                 if busy {
                     HStack {
                         ProgressView().controlSize(.small)
-                        Text(method == .oauth ? "Waiting for the browser…" : "Signing in…").foregroundStyle(.secondary)
+                        Text(inBrowser ? "Waiting for the browser…" : "Signing in…").foregroundStyle(.secondary)
                         Spacer()
                         Button("Cancel") { signingIn?.cancel() }
                     }
@@ -225,11 +245,18 @@ struct AccountSettings: View {
             if let error { Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red) }
         }
         .formStyle(.grouped)
-        .task(id: method) {
-            if !store.isSignedIn, method == .oauth, clientSecret.isEmpty {
+        .task(id: showsMethods && method == .oauth) {
+            if !store.isSignedIn, showsMethods, method == .oauth, clientSecret.isEmpty {
                 do { clientSecret = try Store.savedOAuthSecret() ?? "" } catch { self.error = error.localizedDescription }
             }
         }
+    }
+
+    private var methodPicker: some View {
+        Picker("Sign in with", selection: $method) {
+            ForEach(Method.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
     }
 
     /// Your site's portal (`<site>/developer`) once a site is known, else Teamwork's guide.
@@ -238,8 +265,9 @@ struct AccountSettings: View {
             ?? URL(string: "https://apidocs.teamwork.com/guides/teamwork/create-an-app")!
     }
 
-    private func run(_ work: @escaping @MainActor () async throws -> Void) {
+    private func run(inBrowser: Bool = false, _ work: @escaping @MainActor () async throws -> Void) {
         error = nil
+        self.inBrowser = inBrowser
         signingIn = Task {
             do { try await work() } catch is CancellationError {} catch {
                 if !Task.isCancelled { self.error = error.localizedDescription }

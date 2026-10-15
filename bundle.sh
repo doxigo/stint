@@ -23,7 +23,16 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/TeamworkTimer "$app/Contents/MacOS/"
 cp Info.plist "$app/Contents/"
-# ponytail: placeholder .icns; replace with an Icon Composer icon once Xcode is installed
+# Stint's built-in Teamwork app ("Sign in with Teamwork"), from the environment: CI passes GitHub secrets.
+# Only the built copy gets it, never the repo. Without an ID, sign-in offers an API token or your own app.
+if [ -n "${TEAMWORK_CLIENT_ID:-}" ]; then
+    plutil -insert TeamworkClientID -string "$TEAMWORK_CLIENT_ID" "$app/Contents/Info.plist"
+    if [ -n "${TEAMWORK_CLIENT_SECRET:-}" ]; then
+        plutil -insert TeamworkClientSecret -string "$TEAMWORK_CLIENT_SECRET" "$app/Contents/Info.plist"
+    fi
+fi
+# Drawn by Resources/make-icon.swift. ponytail: a flat .icns has no Dark/tinted variants on macOS 26;
+# move it to an Icon Composer icon once Xcode is installed.
 cp Resources/AppIcon.icns "$app/Contents/Resources/"
 
 # Release disk image: the app plus an Applications shortcut to drag it onto.

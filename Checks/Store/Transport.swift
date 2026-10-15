@@ -16,6 +16,9 @@ final class MockState: @unchecked Sendable {
     /// Timer seconds set through `seconds` on PUT (paused timers, default 600), and running timers' start.
     var durations: [Int: Int] = [:]
     var running: [Int: Date] = [:]
+    /// The next `limited` requests get a 429, with this `Retry-After` header (nil leaves it out).
+    var limited = 0
+    var retryAfter: String? = "0"
     /// URLSession hands protocols the body as a stream.
     static func json(_ request: URLRequest) -> [String: Any]? {
         guard let stream = request.httpBodyStream else { return nil }
@@ -30,6 +33,7 @@ final class MockState: @unchecked Sendable {
             let url = request.url!, path = url.path, verb = request.httpMethod ?? "GET"
             let page = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems?.first { $0.name == "page" }?.value ?? "1"
             calls.append("\(url.host!) \(verb) \(path)?page=\(page)")
+            if limited > 0 { limited -= 1; return (429, "{}", 0) }
             if path.hasSuffix("/me.json") { return (200, "{\"person\":{\"id\":\(user),\"firstName\":\"Test\",\"lastName\":\"User\"}}", 0) }
             if path.hasSuffix("/workload.json") {
                 return (200, "{\"included\":{\"workingHourEntries\":{\"1\":{\"weekday\":\"thursday\",\"taskHours\":7.5},\"2\":{\"weekday\":\"friday\",\"taskHours\":6}}}}", 0)
@@ -98,9 +102,11 @@ final class MockProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (status, body, delay) = Self.state.response(request)
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+        var headers = ["Content-Type": "application/json"]
+        if status == 429, let retryAfter = Self.state.lock.withLock({ Self.state.retryAfter }) { headers["Retry-After"] = retryAfter }
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self, headers] in
             guard !stopped.withLock({ cancelled }) else { return }
-            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data(body.utf8))
             client?.urlProtocolDidFinishLoading(self)
         }

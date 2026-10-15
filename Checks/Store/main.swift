@@ -265,6 +265,35 @@ check(Store(defaults: defaults, logDirectory: directory).customDayLength == 27_0
 store.customDayLength = nil
 check(store.target(in: day(16)) == nil && defaults.object(forKey: "customDayLength") == nil, "no target signed out without a custom day")
 
+// Rate limiting (429): Teamwork refused the request unprocessed, so it's sent again after Retry-After (else 60 s),
+// up to 3 times, with a calm status meanwhile. A log's receipt still guards against any other failure.
+let sent = { (method: String) in state.lock.withLock { state.calls.filter { $0.contains("\(method) ") }.count } }
+state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.durations = [:]; state.running = [:] }
+try await store.signIn(site: "limited.teamwork.com", token: "placeholder")
+await store.refresh()
+state.lock.withLock { state.limited = 1; state.retryAfter = "0"; state.calls = [] }
+check(await store.log(timer(1), seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
+      && sent("POST") == 2 && state.lock.withLock { state.posts[101] == 1 } && store.errorMessage == nil,
+      "a rate-limited time entry is sent again and logged once, with no error")
+state.lock.withLock { state.limited = 4; state.calls = [] }
+check(await !store.log(timer(2), seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
+      && sent("POST") == 4 && store.errorMessage?.contains("429") == true, "a request still refused after 3 retries fails")
+check(store.logAttempts[2] == nil && state.lock.withLock { state.posts[202] == nil }, "a refused log leaves no receipt, so it can be retried")
+check(await store.log(timer(2), seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
+      && state.lock.withLock { state.posts[202] == 1 }, "the retry logs once")
+state.lock.withLock { state.limited = 1; state.retryAfter = "1"; state.calls = [] }
+store.errorMessage = nil
+let held = Task { await store.refresh() }
+try await Task.sleep(for: .milliseconds(400))
+check(store.rateLimited && store.errorMessage == nil && sent("GET") == 1, "Retry-After is honoured with a status, not an error")
+check(await held.value && !store.rateLimited && store.errorMessage == nil, "the status clears once the request goes through")
+state.lock.withLock { state.limited = 1; state.retryAfter = nil; state.calls = [] }
+let stuck = Task { await store.refresh() }
+try await Task.sleep(for: .milliseconds(500))
+check(store.rateLimited && sent("GET") == 1, "without Retry-After the wait is longer (60 s)")
+try store.signOut()
+check(await !stuck.value && !store.rateLimited && store.errorMessage == nil, "sign-out ends the wait quietly")
+
 state.lock.withLock { state.mode = "pagination" }
 let client = TeamworkClient(credentials: Credentials(kind: .apiToken, site: URL(string: "https://page.teamwork.com/")!, secret: "placeholder"))
 let entries = try await client.timeEntries(userId: 1, from: .now, to: .now)
@@ -275,5 +304,15 @@ check(try await client.tasks(matching: "t", projectId: nil, projectName: nil).co
 check(try await client.tasks(matching: "", projectId: 101, projectName: "P").count == 2, "a project's task list reads every page")
 state.lock.withLock { state.mode = "empty-page" }
 check(try await client.timeEntries(userId: 1, from: .now, to: .now).timelogs.count == 1, "an empty page ends the list")
+state.lock.withLock { state.mode = "pagination"; state.limited = 1; state.retryAfter = "0"; state.calls = [] }
+check(try await client.timeEntries(userId: 1, from: .now, to: .now).timelogs.count == 2 && sent("GET") == 3,
+      "a rate-limited page is fetched again and the list completes")
+state.lock.withLock { state.mode = "normal"; state.limited = 1; state.retryAfter = "1" }
+let begun = Date.now
+async let refused = client.starredProjects()
+try await Task.sleep(for: .milliseconds(200))
+_ = try await client.projects(matching: "x")
+check(Date.now.timeIntervalSince(begun) > 0.9, "after a 429 every request waits, not only the refused one")
+_ = try await refused
 print(failed == 0 ? "All store and transport checks passed." : "\(failed) store check(s) failed.")
 exit(failed == 0 ? 0 : 1)

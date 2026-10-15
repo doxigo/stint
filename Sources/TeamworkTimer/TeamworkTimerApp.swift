@@ -27,8 +27,19 @@ struct TeamworkTimerApp: App {
 
 /// The status item is the app's main surface, so it keeps running with no window open. (SwiftUI quits
 /// an app whose only scene is a Window once that window, or the popover, closes.)
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Takes `stint:` URLs (the sign-in redirect) as Apple events, ahead of SwiftUI, which would route them to a scene.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(openURL(_:reply:)),
+                                                     forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc private func openURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
+        AppRedirect.handle(url)
+    }
 }
 
 /// Menu bar commands; each calls the same Store action as its button.

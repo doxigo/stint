@@ -58,16 +58,20 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 1. Download `Stint.dmg` from the latest [release](https://github.com/doxigo/stint/releases) and open it.
 2. Drag **Stint** onto the Applications folder, then open it from Applications.
 
-Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
+Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned releases**: macOS blocks the first launch. Open the app, click **Done** on the warning, then click **Open Anyway** in **System Settings › Privacy & Security › Security** (it's there for about an hour) and enter your login password to confirm. Or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
 
 Requires macOS 26 or later.
 
 ## Sign in
 
-Open the window (⌘0 from the popover), then **Sign In** at the bottom of the sidebar. Two options:
+Open the window (⌘0 from the popover), then **Sign In** at the bottom of the sidebar.
 
-- **API token** (quickest): in Teamwork, open your profile, choose **Edit My Details**, then **API & Mobile**, and copy the token. Enter your site (for example `acme.teamwork.com`) and the token.
-- **Teamwork Sign-In** (OAuth): create an app in your site's Developer Portal (`https://<your-site>/developer`), add `http://localhost:8123` as a redirect URL, and paste its client ID and secret. Your browser opens to sign in and hands the result back to the app.
+- **Sign in with Teamwork**: your browser opens Teamwork. Sign in, allow it to open Stint, and you're back in the app. Release builds offer this once Stint's own Teamwork app is registered. Builds without it (including your own builds from source) show the two options below instead.
+
+Under **Advanced**:
+
+- **API token**: in Teamwork, open your profile, choose **Edit My Details**, then **API & Mobile**, and copy the token. Enter your site (for example `acme.teamwork.com`) and the token.
+- **Your own app** (OAuth): create an app in your site's Developer Portal (`https://<your-site>/developer`), add a redirect URL, and paste its client ID and secret. The redirect can be `stint://oauth/callback` or a loopback address such as `http://localhost:8123` (the default).
 
 Credentials are stored in your Keychain. Builds signed without an Apple Developer certificate ask for your login password once after each update; choose **Always Allow**.
 
@@ -103,6 +107,7 @@ For public releases, configure these GitHub Actions secrets:
 - `MACOS_CERTIFICATE_P12`: base64-encoded Developer ID Application certificate, including its private key.
 - `MACOS_CERTIFICATE_PASSWORD`: the exported certificate's password.
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`: the Apple account, app-specific password, and team for notarization.
+- `TEAMWORK_CLIENT_ID` and, optionally, `TEAMWORK_CLIENT_SECRET`: Stint's Developer Portal app, for **Sign in with Teamwork**. `bundle.sh` writes them into the built app only, never the repo. A secret shipped in an app can be read out of it; [DESIGN.md](DESIGN.md#built-in-sign-in) covers that trade-off.
 
 For a signed local release, import your Developer ID Application identity, create a profile with `xcrun notarytool store-credentials`, then run:
 
@@ -125,7 +130,7 @@ Sources/TeamworkTimer/
   TeamworkTimerApp.swift   scenes and menu commands
   Store.swift              app state, polling, caching, logging rules
   TeamworkClient.swift     Teamwork v3 API (timers, time logs, tasks, projects)
-  Auth.swift               Keychain, Launchpad OAuth, loopback redirect server
+  Auth.swift               Keychain, Launchpad OAuth, stint:// and loopback redirects
   Popover.swift            the menu bar popover
   MainWindow.swift         the library window
   Chrome.swift, Brand.swift  the shared design system and palette

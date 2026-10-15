@@ -256,8 +256,12 @@ func workTarget(in interval: DateInterval, days: [Int: TimeInterval], calendar: 
     return total > 0 ? total : nil
 }
 
-/// Query items of the browser's loopback request, e.g. "GET /?code=abc HTTP/1.1" → ["code": "abc"].
+/// The sign-in redirect the app takes itself: a private-use scheme registered in Info.plist (CFBundleURLTypes).
+let appRedirect = URL(string: "stint://oauth/callback")!
+
+/// A redirect sign-in can use: `appRedirect`, or an HTTP loopback address with a port.
 func oauthRedirect(_ input: String) -> URL? {
+    if input == appRedirect.absoluteString { return appRedirect }
     guard let url = URL(string: input), url.scheme == "http",
           ["localhost", "127.0.0.1", "::1", "[::1]"].contains(url.host?.lowercased() ?? ""),
           let port = url.port, (1...65535).contains(port),
@@ -265,6 +269,7 @@ func oauthRedirect(_ input: String) -> URL? {
     return url
 }
 
+/// Query items of the browser's loopback request, e.g. "GET /?code=abc HTTP/1.1" → ["code": "abc"].
 func callbackQuery(fromRequest request: String, redirect: URL, state: String) -> [String: String] {
     guard request.contains("\r\n\r\n") else { return [:] }
     let requestLine = request.components(separatedBy: "\r\n").first ?? ""
@@ -273,7 +278,20 @@ func callbackQuery(fromRequest request: String, redirect: URL, state: String) ->
           parts[1].hasPrefix("/"), !parts[1].hasPrefix("//"),
           let url = URLComponents(string: "http://localhost" + parts[1]),
           url.path == (redirect.path(percentEncoded: false).isEmpty ? "/" : redirect.path(percentEncoded: false)) else { return [:] }
-    let items = url.queryItems ?? []
+    return verifiedCallback(url.queryItems, state: state)
+}
+
+/// Query items of a redirect to the app itself (`appRedirect`), checked the same way.
+func callbackQuery(fromURL url: URL, redirect: URL, state: String) -> [String: String] {
+    guard url.scheme?.lowercased() == redirect.scheme, url.host() == redirect.host(), url.path() == redirect.path(),
+          url.user() == nil, url.port == nil else { return [:] }
+    return verifiedCallback(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems, state: state)
+}
+
+/// The callback's query when it answers this sign-in: the expected `state` and exactly one of `code` or `error`,
+/// with no name repeated.
+private func verifiedCallback(_ items: [URLQueryItem]?, state: String) -> [String: String] {
+    let items = items ?? []
     guard Set(items.map(\.name)).count == items.count else { return [:] }
     let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
     guard query["state"] == state,

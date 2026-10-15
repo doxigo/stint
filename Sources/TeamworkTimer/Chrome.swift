@@ -69,10 +69,24 @@ struct ActionBar<Content: View>: View {
     }
 }
 
+/// The last error, and a calm status line while Teamwork's rate limit holds requests back.
 struct ErrorBanner: View {
     @Environment(Store.self) private var store
 
     var body: some View {
+        VStack(spacing: 0) {
+            if store.rateLimited {
+                Label(Store.rateLimitStatus, systemImage: "hourglass")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Space.l)
+                    .padding(.vertical, Space.s)
+            }
+            error
+        }
+    }
+
+    @ViewBuilder private var error: some View {
         if let error = store.errorMessage {
             HStack(alignment: .top) {
                 Label(error, systemImage: "exclamationmark.triangle.fill")

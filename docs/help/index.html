@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help · Stint for Teamwork.com</title>
+<meta name="description" content="How to install Stint, sign in to Teamwork.com, track and log time from the macOS menu bar, and fix common problems.">
+<link rel="canonical" href="https://doxigo.github.io/stint/help/">
+<meta name="theme-color" content="#1d1c39">
+<link rel="icon" href="../assets/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="../assets/icon.png">
+<link rel="preload" href="../assets/work-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="../"><img src="../assets/icon.png" alt="" width="32" height="32">Stint</a>
+    <nav aria-label="Site">
+      <a href="./" aria-current="page">Help</a>
+      <a href="../privacy/">Privacy</a>
+      <a href="../terms/">Terms</a>
+      <a href="https://github.com/doxigo/stint">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap">
+      <h1>Stint help<span class="dot">.</span></h1>
+      <p>Everything you need to install Stint, connect it to Teamwork.com, and track and log your time from the menu bar.</p>
+    </div>
+  </div>
+
+  <div class="wrap doc">
+    <nav class="toc" aria-labelledby="toc-title">
+      <h2 id="toc-title">On this page</h2>
+      <ol>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#sign-in">Sign in</a></li>
+        <li><a href="#menu-bar">The menu bar</a></li>
+        <li><a href="#popover">The popover</a></li>
+        <li><a href="#timers">Start a timer</a></li>
+        <li><a href="#pinned">Pinned tasks</a></li>
+        <li><a href="#logging">Log time</a></li>
+        <li><a href="#editing">Edit tracked time</a></li>
+        <li><a href="#idle">Idle detection</a></li>
+        <li><a href="#reminders">Reminders</a></li>
+        <li><a href="#window">The main window</a></li>
+        <li><a href="#settings">Settings</a></li>
+        <li><a href="#shortcuts">Keyboard shortcuts</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#contact">Get help</a></li>
+      </ol>
+    </nav>
+
+    <article class="prose">
+      <section>
+        <h2 id="install">Install</h2>
+        <p>Stint needs macOS 26 or later on a Mac with Apple silicon, and a Teamwork.com account.</p>
+        <ol>
+          <li>Download <a href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg"><code>Stint.dmg</code></a> from the latest release on GitHub.</li>
+          <li>Open the disk image and drag <strong>Stint</strong> onto the <strong>Applications</strong> folder.</li>
+          <li>Open Stint from your Applications folder. The first time, macOS asks you to approve it. See <a href="#unsigned">Open Stint the first time</a>.</li>
+        </ol>
+        <p>Stint lives in the menu bar. It appears in the Dock only while its main window is open.</p>
+
+        <h3 id="unsigned">Open Stint the first time</h3>
+        <p>Current builds of Stint aren't signed with an Apple Developer ID or notarized by Apple yet, so macOS blocks the first launch. To open it:</p>
+        <ol>
+          <li>Open Stint. When macOS says it can't verify the app, click <strong>Done</strong>.</li>
+          <li>Choose Apple menu  › <strong>System Settings</strong>, then click <strong>Privacy &amp; Security</strong> in the sidebar.</li>
+          <li>Scroll down to <strong>Security</strong>, find the message about Stint, and click <strong>Open Anyway</strong>. The button is there for about an hour after you tried to open the app.</li>
+          <li>Enter your login password, then confirm that you want to open Stint.</li>
+        </ol>
+        <p>From then on, Stint opens like any other app. If you prefer Terminal, this removes the download quarantine instead:</p>
+        <pre><code>xattr -dr com.apple.quarantine "/Applications/Stint.app"</code></pre>
+        <div class="note"><p>Only do this for a copy you downloaded from <a href="https://github.com/doxigo/stint/releases">Stint's releases on GitHub</a>.</p></div>
+
+        <h3 id="update">Update</h3>
+        <p>Stint doesn't check for updates on its own. To get a new version, quit Stint, download the latest <code>Stint.dmg</code>, and drag Stint onto Applications again to replace the old copy. Your sign-in, settings and pinned tasks are kept.</p>
+        <p>After an update, macOS may ask for your login password once so Stint can read its saved sign-in. See <a href="#keychain">macOS asks for your password after an update</a>.</p>
+
+        <h3 id="uninstall">Uninstall</h3>
+        <p>Quit Stint, then drag it from Applications to the Trash. To remove its saved sign-in, settings and files too, follow <a href="../privacy/#delete">Delete your data</a> in the privacy policy. Time you logged stays in Teamwork.</p>
+      </section>
+
+      <section>
+        <h2 id="sign-in">Sign in</h2>
+        <p>Open Stint's window (click <strong>Open Window</strong> in the popover, or press <kbd>⌘0</kbd>), then click <strong>Sign In</strong> at the bottom of the sidebar. You can sign in with an API token or with Teamwork Sign-In.</p>
+
+        <h3 id="api-token">API token (quickest)</h3>
+        <ol>
+          <li>In Teamwork, open your profile and choose <strong>Edit My Details</strong>, then <strong>API &amp; Mobile</strong>. Copy your API token.</li>
+          <li>In Stint, choose <strong>API Token</strong>.</li>
+          <li>Enter your Teamwork site, for example <code>acme.teamwork.com</code>. You can also paste any address from your site.</li>
+          <li>Paste the token and click <strong>Sign In</strong>.</li>
+        </ol>
+        <p>Your API token acts as you in Teamwork, so treat it like a password. Stint keeps it in your macOS Keychain.</p>
+
+        <h3 id="oauth">Teamwork Sign-In</h3>
+        <p>Teamwork Sign-In signs you in through your browser instead of a token. It needs an app registered for your Teamwork site:</p>
+        <ol>
+          <li>Open your site's Developer Portal at <code>https://<var>your-site</var>/developer</code> and create an app.</li>
+          <li>Add <code>http://localhost:8123</code> as a redirect URL. You can use another port, as long as the Redirect URI in Stint is the same.</li>
+          <li>Copy the client ID and client secret from the app's Credentials tab.</li>
+          <li>In Stint, choose <strong>Teamwork Sign-In</strong>, paste the client ID and secret, and click <strong>Sign In with Teamwork…</strong></li>
+          <li>Your browser opens Teamwork's sign-in page. Sign in and approve the app, then return to Stint.</li>
+        </ol>
+        <p>Stint waits up to five minutes for the browser. Click <strong>Cancel</strong> to stop waiting. The client secret is kept in your Keychain, so you don't need to enter it again.</p>
+
+        <h3 id="sign-out">Sign out</h3>
+        <p>In Settings, choose <strong>Account</strong>, then <strong>Sign Out</strong>. This removes your sign-in from the Keychain. Pinned tasks and recent items stay on your Mac, ready for the next time you sign in to the same account. Each Teamwork site and user keeps its own.</p>
+      </section>
+
+      <section>
+        <h2 id="menu-bar">The menu bar</h2>
+        <p>Stint adds a timer to the menu bar. Click it to open the <a href="#popover">popover</a>. Choose how it looks in Settings, under <strong>Menu Bar › Show</strong>:</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Style</th><th scope="col">What you see while a timer runs</th></tr></thead>
+            <tbody>
+              <tr><td>Time</td><td>The running time. This is the default.</td></tr>
+              <tr><td>Task and time</td><td>The task's name and the running time.</td></tr>
+              <tr><td>Time badge</td><td>A compact pill with a play or pause symbol and the time.</td></tr>
+              <tr><td>Icon only</td><td>Just the Stint icon.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure>
+          <img src="../screenshots/menubar-badge.png" width="400" height="132" loading="lazy" alt="The Time badge in the menu bar, showing a pause symbol and 0:38">
+          <figcaption>The Time badge style while a timer runs.</figcaption>
+        </figure>
+        <p>Turn on <strong>Show seconds</strong> for a ticking clock, and <strong>Highlight while running</strong> to color the menu bar item while a timer runs. The <strong>Floating mini timer</strong> (<kbd>⇧⌘M</kbd>) keeps a small timer window above your other apps.</p>
+      </section>
+
+      <section>
+        <h2 id="popover">The popover</h2>
+        <p>The popover shows one day at a time, starting with today.</p>
+        <figure>
+          <img src="../screenshots/popover-light.png" width="1000" height="1349" loading="lazy" alt="The popover: a header with the date and 2:03 of 7:30 logged, a week strip, a running timer with Pause, Edit and Log buttons, a paused timer, and two logged entries" style="max-width: min(100%, 420px)">
+        </figure>
+        <ul>
+          <li><strong>Header:</strong> the date, and the time you've logged today against your working-day target.</li>
+          <li><strong>Week strip:</strong> each day's logged total. Click a day, or press <kbd>←</kbd> and <kbd>→</kbd>, to move between days. <kbd>⌘T</kbd> returns to today.</li>
+          <li><strong>Timers:</strong> your Teamwork timers. The running one has a pink dot. Point to a timer to show its <strong>Edit</strong> and <strong>Log</strong> buttons.</li>
+          <li><strong>Logged:</strong> the time entries for that day. <strong>Start</strong> begins a new timer on the same task.</li>
+          <li>Click a task's title to open it in Teamwork. Right-click a timer or entry for more actions.</li>
+        </ul>
+        <p>The buttons along the bottom:</p>
+        <ul>
+          <li><strong>+</strong> starts a <a href="#timers">new timer</a> (<kbd>⌘N</kbd>).</li>
+          <li><strong>Pinned</strong> shows your <a href="#pinned">pinned tasks</a> and tasks due today.</li>
+          <li><strong>Time Summary</strong> shows today, yesterday, this week and this month, with progress toward your target.</li>
+          <li><strong>Log All</strong> logs every timer to Teamwork. It reads <strong>Log Timer</strong> when there's only one.</li>
+          <li><strong>Open Window</strong> opens the <a href="#window">main window</a> (<kbd>⌘0</kbd>). Its arrow has <strong>Open Teamwork in Browser</strong>, <strong>Settings…</strong> and <strong>Quit Stint</strong>.</li>
+        </ul>
+        <p>You can also drop a Teamwork task link from your browser onto the popover to start a timer on that task.</p>
+      </section>
+
+      <section>
+        <h2 id="timers">Start a timer</h2>
+        <p>Click <strong>+</strong> in the popover or press <kbd>⌘N</kbd>. Your pinned tasks, tasks due today, recent work and starred projects come first.</p>
+        <ul>
+          <li>Type to search your tasks and projects, or paste a Teamwork task link.</li>
+          <li>Choose a project to see its tasks, or right-click it and choose <strong>Start Timer on Project</strong> to track time without a task.</li>
+        </ul>
+        <p>Stint uses Teamwork's own timers, so they're the same timers you see in Teamwork on the web. Starting a timer pauses the one that's running. A timer you start on the web shows up in Stint within about 15 seconds; press <kbd>⌘R</kbd> to refresh right away.</p>
+        <p>Press <kbd>⌘↩</kbd> to pause the running timer, or resume the last one. To do this from any app, set a shortcut in <a href="#settings">Settings</a>.</p>
+      </section>
+
+      <section>
+        <h2 id="pinned">Pinned tasks</h2>
+        <p>Pin the work you come back to, so it's one click away. Right-click any task, project, timer or logged entry and choose <strong>Pin</strong>.</p>
+        <ul>
+          <li>With the popover open, press <kbd>⌘1</kbd> to <kbd>⌘9</kbd> to start your first nine pinned tasks.</li>
+          <li>Click <strong>Pinned</strong> in the popover to see them all, or open <strong>Pinned</strong> in the main window. Drag them in the main window to change their order.</li>
+          <li>Click <strong>Log</strong> on a pinned task to log time to it directly, without running a timer. Pick the duration and date, add notes, and choose whether it's billable.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="logging">Log time</h2>
+        <p>Logging turns a timer into a time entry in Teamwork, then removes the timer.</p>
+        <ol>
+          <li>Point to a timer and click <strong>Log</strong>, or right-click it and choose <strong>Log…</strong></li>
+          <li>Check the duration. It starts at the tracked time, rounded if you've turned on rounding. You can type <code>1:30</code>, <code>1.5h</code> or <code>90m</code>.</li>
+          <li>Add or edit notes, and set <strong>Billable</strong>. For a task, you can also turn on <strong>Mark task complete</strong>.</li>
+          <li>Click <strong>Log</strong>.</li>
+        </ol>
+        <p>To log several timers at once, click <strong>Log All</strong>. Choose which timers to include, and adjust each one's duration and billable setting before you log.</p>
+        <p>Teamwork logs whole minutes, so seconds are left off, and each entry must be at least one minute. To round durations to 5, 6, 10, 15, 30 or 60 minutes, choose <strong>Round up</strong>, <strong>Round down</strong> or <strong>Round to nearest</strong> in Settings, under <strong>Time Logs</strong>. Rounding never takes a duration down to zero, and you can still edit the result.</p>
+        <div class="note"><p>If your connection drops while logging, Stint can't always tell whether Teamwork saved the entry. Rather than risk a duplicate, it asks you to check Teamwork first. Then choose <strong>Entry exists. Remove timer</strong>, or <strong>No entry exists. Allow retry</strong>.</p></div>
+      </section>
+
+      <section>
+        <h2 id="editing">Edit tracked time</h2>
+        <h3>Timers</h3>
+        <p>Point to a timer and click <strong>Edit</strong>, or right-click it and choose <strong>Edit Task or Notes</strong>.</p>
+        <ul>
+          <li><strong>Change…</strong> moves the timer to another task or project. Its tracked time moves with it.</li>
+          <li><strong>Tracked</strong> sets the timer's time, from 0:00 to 24:00. A running timer carries on from the new time.</li>
+          <li>Edit the notes and the <strong>Billable</strong> setting, then click <strong>Save</strong>.</li>
+        </ul>
+        <p>Your changes are saved to Teamwork, so the web app shows them too. If Teamwork doesn't take a time change, Stint applies it when you log, and the Edit screen tells you that Teamwork's web app still shows the original time.</p>
+        <p>To delete a timer without logging it, right-click it and choose <strong>Discard Timer…</strong></p>
+        <h3>Logged entries</h3>
+        <p>Double-click an entry, or right-click it and choose <strong>Edit…</strong>, to change its duration, start time, notes or billable setting. Choose <strong>Delete…</strong> to remove it from Teamwork. Entries that Teamwork has locked can't be edited or deleted.</p>
+      </section>
+
+      <section>
+        <h2 id="idle">Idle detection</h2>
+        <p>If you step away while a timer runs, Stint notices. When there's been no keyboard, mouse or trackpad input for 10 minutes, or your Mac has been asleep that long, Stint asks what to do once you're back:</p>
+        <ul>
+          <li><strong>Remove and Continue</strong> takes the time you were away off the timer and keeps it running.</li>
+          <li><strong>Remove and Stop</strong> takes the time off and pauses the timer.</li>
+          <li><strong>Keep Time</strong> leaves the timer as it is.</li>
+        </ul>
+        <p>Change the wait (1 to 120 minutes), or turn this off, in Settings under <strong>Idle Time</strong>. Stint only checks how long it's been since your last input. It never records what you type or which apps you use.</p>
+      </section>
+
+      <section>
+        <h2 id="reminders">Reminders</h2>
+        <p>Stint can send notifications to help you keep your time complete. Turn them on or off in Settings, under <strong>Notifications</strong>. macOS asks for permission first.</p>
+        <ul>
+          <li><strong>Remind me when no timer is running</strong> (off by default): every 30 minutes on weekdays between 9:00 and 17:00, counted from when you last tracked time. Choose <strong>Resume Last Timer</strong> or <strong>Snooze 1 Hour</strong>.</li>
+          <li><strong>Alert when a timer runs over 8 hours</strong> (on by default): once per timer, in case you forgot to stop it.</li>
+          <li><strong>Remind me to log timers at the end of the day</strong> (on by default): once on weekdays from 17:00 if timers are left, with <strong>Log All…</strong></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="window">The main window</h2>
+        <p>Open it with <strong>Open Window</strong> in the popover or <kbd>⌘0</kbd>. The sidebar has six pages; press <kbd>⌘1</kbd> to <kbd>⌘6</kbd> to switch between them.</p>
+        <ul>
+          <li><strong>Timers:</strong> all your timers. Drop a Teamwork task link here to start one.</li>
+          <li><strong>Today</strong> and <strong>This Week:</strong> your logged entries and progress. This Week charts each day against your target; click a day's bar to jump to its entries.</li>
+          <li><strong>Pinned:</strong> your pinned tasks, in the order you choose.</li>
+          <li><strong>Starred Projects:</strong> the projects you've starred in Teamwork.</li>
+          <li><strong>My Tasks:</strong> tasks assigned to you, due today, overdue, upcoming or any time.</li>
+        </ul>
+        <figure>
+          <img src="../screenshots/week-dark.png" width="2000" height="1384" loading="lazy" alt="This Week in Dark Mode, with a bar chart of logged time per day against the target">
+          <figcaption>This Week in Dark Mode.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2 id="settings">Settings</h2>
+        <p>Open Settings with <kbd>⌘,</kbd>, from the <strong>Open Window</strong> arrow in the popover, or at the bottom of the main window's sidebar.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
+            <tbody>
+              <tr><td>Open at login</td><td>Starts Stint when you log in to your Mac.</td></tr>
+              <tr><td>Menu Bar</td><td>The <a href="#menu-bar">menu bar style</a>, seconds, highlight while running, and the floating mini timer.</td></tr>
+              <tr><td>Keyboard</td><td>A shortcut that starts and pauses timers from any app: <kbd>⌃⌥⌘T</kbd>, <kbd>⌃⌥⌘P</kbd> or <kbd>⌃⌥Space</kbd>. Off by default.</td></tr>
+              <tr><td>Time Logs</td><td>Rounding, and the step it rounds to.</td></tr>
+              <tr><td>Targets</td><td>Your working day. <strong>From Teamwork</strong> uses the working hours in your Teamwork profile, or else your profile's day length. <strong>Custom</strong> sets your own, in 15-minute steps.</td></tr>
+              <tr><td>Idle Time</td><td>Whether Stint asks about <a href="#idle">idle time</a>, and after how many minutes.</td></tr>
+              <tr><td>Notifications</td><td>The three <a href="#reminders">reminders</a>.</td></tr>
+              <tr><td>Account</td><td>Your site and name, and <strong>Sign Out</strong>. Signed out, this is where you <a href="#sign-in">sign in</a>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure>
+          <img src="../screenshots/settings.png" width="2000" height="1384" loading="lazy" alt="Settings: Open at login, Menu Bar, Keyboard, Time Logs and Targets">
+        </figure>
+      </section>
+
+      <section>
+        <h2 id="shortcuts">Keyboard shortcuts</h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Shortcut</th><th scope="col">Action</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>⌘N</kbd></td><td>New timer</td></tr>
+              <tr><td><kbd>⌘↩</kbd></td><td>Pause the running timer, or resume the last one</td></tr>
+              <tr><td><kbd>⌘1</kbd>–<kbd>⌘9</kbd></td><td>Start a pinned task (popover)</td></tr>
+              <tr><td><kbd>⌘1</kbd>–<kbd>⌘6</kbd></td><td>Switch pages (main window)</td></tr>
+              <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous or next day (popover)</td></tr>
+              <tr><td><kbd>⌘T</kbd></td><td>Back to today (popover)</td></tr>
+              <tr><td><kbd>⌘0</kbd></td><td>Open the main window</td></tr>
+              <tr><td><kbd>⌘,</kbd></td><td>Settings</td></tr>
+              <tr><td><kbd>⌘R</kbd></td><td>Refresh from Teamwork</td></tr>
+              <tr><td><kbd>⇧⌘M</kbd></td><td>Show or hide the floating mini timer</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>You can also set a <a href="#settings">global shortcut</a> to start and pause from any app.</p>
+      </section>
+
+      <section>
+        <h2 id="troubleshooting">Troubleshooting</h2>
+
+        <h3 id="keychain">macOS asks for your password after an update</h3>
+        <p>Stint keeps your sign-in in the macOS Keychain, and macOS only lets the app that saved an item read it. Current builds aren't signed with an Apple Developer ID, so after each update macOS can't tell the new version is the same app, and asks once whether Stint may read its saved sign-in.</p>
+        <p>Enter your Mac login password and click <strong>Always Allow</strong>. If you clicked <strong>Deny</strong>, quit and reopen Stint to be asked again, or sign in again.</p>
+
+        <h3>macOS says Stint can't be opened</h3>
+        <p>Approve it once in Privacy &amp; Security. See <a href="#unsigned">Open Stint the first time</a>.</p>
+
+        <h3>“Teamwork rejected the sign-in (401)”</h3>
+        <p>Your API token was changed or revoked, or your Teamwork Sign-In ended. Sign in again in Settings, under <strong>Account</strong>.</p>
+
+        <h3>“Teamwork denied access (403)”</h3>
+        <p>Your Teamwork permissions don't allow that action, for example logging time on a project you're not part of. Ask your Teamwork site administrator.</p>
+
+        <h3>A timer from the web doesn't show up</h3>
+        <p>Stint checks Teamwork every 15 seconds, and whenever your Mac wakes. Press <kbd>⌘R</kbd> to refresh now.</p>
+
+        <h3>Teamwork Sign-In doesn't return to Stint</h3>
+        <ul>
+          <li>The redirect URL in your Developer Portal app must match the Redirect URI in Stint exactly, including the port.</li>
+          <li>If another app uses that port, pick a different one, such as <code>http://localhost:8124</code>, in both places.</li>
+          <li>Stint stops waiting after five minutes. Click <strong>Sign In with Teamwork…</strong> to try again.</li>
+        </ul>
+
+        <h3>Notifications don't appear</h3>
+        <p>Check that they're turned on in Stint's Settings, and allowed in System Settings › <strong>Notifications</strong> › <strong>Stint</strong>.</p>
+
+        <h3>The global shortcut doesn't work</h3>
+        <p>If another app already uses that combination, Stint says so in Settings. Choose a different one.</p>
+
+        <h3>Open at login doesn't stay on</h3>
+        <p>Allow Stint in System Settings › <strong>General</strong> › <strong>Login Items &amp; Extensions</strong>.</p>
+
+        <h3>“Earlier log receipts couldn't be read”</h3>
+        <p>Stint keeps a small record of logs in progress so it never posts the same time twice. If that record is damaged, Stint sets it aside. If a log was interrupted just before, check Teamwork for a duplicate entry.</p>
+      </section>
+
+      <section>
+        <h2 id="contact">Get help</h2>
+        <p>Found a bug or have an idea? <a href="https://github.com/doxigo/stint/issues">Open an issue on GitHub</a>. Tell us your macOS version, which Stint release you have, and what happened. Never include your API token or client secret.</p>
+        <p>Stint is an independent project, not made or supported by Teamwork.com. For questions about your Teamwork account, contact <a href="https://www.teamwork.com/support/">Teamwork support</a>.</p>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row">
+    <div>
+      <p><strong>Stint for Teamwork</strong></p>
+      <p>An independent project, not made or endorsed by Teamwork.com. “Teamwork” and “Teamwork.com” are trademarks of their owner, used here only to say what Stint works with.</p>
+      <p>© 2026 Sohail Lajevardi</p>
+    </div>
+    <nav aria-label="Footer">
+      <a href="../">Home</a>
+      <a href="../privacy/">Privacy</a>
+      <a href="../terms/">Terms</a>
+      <a href="https://github.com/doxigo/stint">Source code</a>
+      <a href="https://github.com/doxigo/stint/issues">Report an issue</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
