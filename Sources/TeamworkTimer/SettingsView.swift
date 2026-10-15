@@ -44,8 +44,7 @@ struct GeneralSettings: View {
                 }
                 Toggle("Show seconds", isOn: $menuBarSeconds)
                     .disabled(menuBarStyle == .icon)
-                Toggle("Highlight badge while running", isOn: $menuBarHighlight)
-                    .disabled(menuBarStyle != .badge)
+                Toggle("Highlight while running", isOn: $menuBarHighlight)
                 Toggle("Floating mini timer", isOn: $miniTimer)
                     .onChange(of: miniTimer) { _, shown in MiniTimer.setShown(shown, store: store) }
             } header: {

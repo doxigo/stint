@@ -403,11 +403,14 @@ struct EntriesView: View {
 
 struct PinnedView: View {
     @Environment(Store.self) private var store
+    @State private var logging: WorkItem?
 
     var body: some View {
         Page {
             ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
-                WorkRow(item: item, showsPin: false, startButton: true) { Task { await store.start(item) } }
+                WorkRow(item: item, showsPin: false, startButton: true, log: { logging = item }) {
+                    Task { await store.start(item) }
+                }
                     .draggable(item.id)
                     .dropDestination(for: String.self) { ids, _ in
                         guard let from = store.pins.firstIndex(where: { $0.id == ids.first }) else { return false }
@@ -422,6 +425,10 @@ struct PinnedView: View {
                 ContentUnavailableView("No Pins", systemImage: "pin",
                                        description: Text("Right-click a task, project or timer and choose Pin to start it in one click."))
             }
+        }
+        .sheet(item: $logging) { item in
+            LogWorkView(item: item) { logging = nil }
+                .frame(width: 440)
         }
         .navigationTitle("Pinned")
         .navigationSubtitle("Drag to reorder. The first nine start with ⌘1–⌘9 in the menu bar.")

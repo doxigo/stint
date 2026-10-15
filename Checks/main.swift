@@ -182,10 +182,22 @@ check(overlap.trackedTime(from: t0.addingTimeInterval(-1000), to: t0.addingTimeI
 check(Credentials(kind: .apiToken, site: URL(string: "https://a.teamwork.com/")!, secret: "tok").authorization
       == "Basic " + Data("tok:x".utf8).base64EncodedString(), "basic auth header")
 
-let badge = MenuBarBadge.image(running: true, highlighted: false, time: "1:30")
-check(MenuBarBadge.image(running: true, highlighted: false, time: "1:30") === badge, "menu badge reuses unchanged image")
-check(MenuBarBadge.image(running: false, highlighted: false, time: "1:30") !== badge, "menu badge redraws changed state")
-check(badge.isTemplate && !MenuBarBadge.image(running: true, highlighted: true, time: "1:30").isTemplate,
+let badge = MenuBarBadge.image(.badge, running: true, highlight: false, text: "1:30")!
+check(MenuBarBadge.image(.badge, running: true, highlight: false, text: "1:30") === badge, "menu badge reuses unchanged image")
+check(MenuBarBadge.image(.badge, running: false, highlight: false, text: "1:30") !== badge, "menu badge redraws changed state")
+check(badge.isTemplate && MenuBarBadge.image(.badge, running: false, highlight: true, text: "1:30")!.isTemplate
+      && !MenuBarBadge.image(.badge, running: true, highlight: true, text: "1:30")!.isTemplate,
       "highlighted badge keeps its brand colour; plain badge follows the menu bar tint")
+for (style, text) in [(MenuBarStyle.taskAndTime, "Fix login  1:30"), (.time, "1:30"), (.icon, "")] {
+    let pill = MenuBarBadge.image(style, running: true, highlight: true, text: text)
+    check(pill?.isTemplate == false, "\(style.rawValue) fills with the brand colour while running")
+    check(MenuBarBadge.image(style, running: true, highlight: true, text: text) === pill, "\(style.rawValue) reuses unchanged image")
+    check(MenuBarBadge.image(style, running: false, highlight: true, text: text) == nil
+          && MenuBarBadge.image(style, running: true, highlight: false, text: text) == nil,
+          "\(style.rawValue) keeps its tinted glyph while paused or unhighlighted")
+}
+check(MenuBarBadge.image(.icon, running: true, highlight: true, text: "")!.size == NSSize(width: 18, height: 18), "icon pill is a square")
+check(MenuBarBadge.image(.taskAndTime, running: true, highlight: true, text: "Fix login  1:30")!.size.width
+      > MenuBarBadge.image(.time, running: true, highlight: true, text: "1:30")!.size.width, "task pill fits the task")
 print(failed == 0 ? "All checks passed." : "\(failed) check(s) failed.")
 exit(failed == 0 ? 0 : 1)

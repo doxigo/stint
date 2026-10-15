@@ -174,6 +174,35 @@ check(!store.timers.contains { $0.id == 1 } && state.lock.withLock { state.posts
       "a logged timer whose removal failed is removed by the next poll, without reposting")
 try store.signOut()
 
+// Logging work without a timer: one POST to the task, nothing sent to timers, even on a double click.
+state.lock.withLock { state.removed = []; state.posts = [:]; state.deleteFails = false; state.delay = true; state.body = nil }
+try await store.signIn(site: "direct.teamwork.com", token: "placeholder")
+await store.refresh()
+while store.weeks.count < 2 { try await Task.sleep(for: .milliseconds(2)) }
+state.lock.withLock { state.calls = [] }
+let work = WorkItem(projectId: 101, projectName: "Website", taskId: 7, taskName: "Write the spec")
+let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
+let revision = store.logRevision
+async let logClick = store.log(work, seconds: 4500, on: yesterday, description: "Notes", billable: true, markTaskComplete: true)
+async let logAgain = store.log(work, seconds: 4500, on: yesterday, description: "Notes", billable: true, markTaskComplete: true)
+let logged = await [logClick, logAgain]
+let (calls, body) = state.lock.withLock { (state.calls, state.body) }
+check(logged.filter { $0 }.count == 1 && calls.filter { $0.contains("POST") }.count == 1, "a double click on Log posts one entry")
+check(calls.contains { $0.contains("POST /projects/api/v3/tasks/7/time.json") }, "a task's time posts to that task")
+check(!calls.contains { $0.contains("/timers") }, "logging work without a timer makes no timer call")
+let timelog = body?["timelog"] as? [String: Any]
+let logStart = timelog.flatMap { ISO8601DateFormatter().date(from: "\($0["date"] ?? "")T\($0["time"] ?? "")Z") }
+check(timelog?["hours"] as? Int == 1 && timelog?["minutes"] as? Int == 15 && timelog?["description"] as? String == "Notes"
+      && timelog?["isBillable"] as? Bool == true && (body?["timelogOptions"] as? [String: Bool])?["markTaskComplete"] == true,
+      "the entry carries duration, notes, billable and mark complete")
+check(logStart.map { Calendar.current.isDate($0, inSameDayAs: yesterday) } == true, "the entry lands on the chosen day")
+check(store.logRevision == revision + 1 && store.recents.first?.sameTarget(as: work) == true
+      && store.toast?.message == "Logged 1:15 to Write the spec", "a direct log reloads lists, joins Recents and confirms")
+check(await !store.log(work, seconds: 30, on: .now, description: "", billable: false, markTaskComplete: false)
+      && state.lock.withLock { state.posts[7] == 1 }, "under a minute is refused before posting")
+state.lock.withLock { state.delay = false }
+try store.signOut()
+
 // Targets: Teamwork's working hours from sign-in; a custom day applies at once and is remembered.
 let day = { (number: Int) in Calendar.current.dateInterval(of: .day, for: Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: number))!)! }
 try await store.signIn(site: "hours.teamwork.com", token: "placeholder")

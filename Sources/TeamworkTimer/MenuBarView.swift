@@ -10,32 +10,38 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
 }
 
 /// Harvest-style badge: a play/pause segment and the time in one rounded pill. Drawn as a template
-/// image, so the menu bar tints it for light and dark wallpapers; while running it can fill with the
-/// brand colour instead, as Harvest's turns orange.
+/// image, so the menu bar tints it for light and dark wallpapers; while running its segment can take
+/// the brand colour instead, as Harvest's turns orange. Every style takes that running look; only the
+/// Time badge keeps a pill otherwise.
 @MainActor enum MenuBarBadge {
-    static let segment: CGFloat = 18
-    private static var cached: (running: Bool, highlighted: Bool, time: String, image: NSImage)?
+    private static let segment: CGFloat = 18
+    private static var cached: (running: Bool, highlighted: Bool, text: String, image: NSImage)?
 
-    static func image(running: Bool, highlighted: Bool, time: String) -> NSImage {
-        if let cached, cached.running == running, cached.highlighted == highlighted, cached.time == time {
+    /// The pill for `style` showing `text` (empty: the glyph alone, in a square), or nil where the
+    /// style shows the plain glyph and title. `highlight` is the "Highlight while running" setting.
+    static func image(_ style: MenuBarStyle, running: Bool, highlight: Bool, text: String) -> NSImage? {
+        let highlighted = running && highlight
+        guard style == .badge || highlighted else { return nil }
+        if let cached, cached.running == running, cached.highlighted == highlighted, cached.text == text {
             return cached.image
         }
         let ink = highlighted ? NSColor.white : .black
-        let text = NSAttributedString(string: time, attributes: [
+        let label = NSAttributedString(string: text, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: ink,
         ])
-        let glyph = NSImage(systemSymbolName: running ? "play.fill" : "pause.fill", accessibilityDescription: nil)!
+        let glyph = NSImage(systemSymbolName: running ? "pause.fill" : "play.fill", accessibilityDescription: nil)!
             .withSymbolConfiguration(.init(pointSize: 8, weight: .black).applying(.init(paletteColors: [ink])))!
         let height: CGFloat = 18, padding: CGFloat = 6
-        let textSize = text.size()
-        let size = NSSize(width: segment + padding + ceil(textSize.width) + padding, height: height)
+        let labelSize = label.size()
+        let size = NSSize(width: text.isEmpty ? segment : segment + padding + ceil(labelSize.width) + padding, height: height)
         let image = NSImage(size: size, flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
             // Two tones, as in Harvest: the glyph segment a step stronger than the time segment.
             if highlighted {
-                NSColor(Brand.purpleFill).setFill()
+                // As in Harvest, only the play/pause segment takes the colour; the time sits on the header's slate.
+                NSColor(Brand.slate).setFill()
                 rect.fill()
-                NSColor.black.withAlphaComponent(0.2).setFill()
+                NSColor(Brand.purpleFill).setFill()
                 NSRect(x: 0, y: 0, width: segment, height: height).fill()
             } else {
                 NSColor.black.withAlphaComponent(0.32).setFill()
@@ -45,11 +51,11 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
             }
             glyph.draw(in: NSRect(x: (segment - glyph.size.width) / 2, y: (height - glyph.size.height) / 2,
                                   width: glyph.size.width, height: glyph.size.height))
-            text.draw(at: NSPoint(x: segment + padding, y: (height - textSize.height) / 2))
+            label.draw(at: NSPoint(x: segment + padding, y: (height - labelSize.height) / 2))
             return true
         }
         image.isTemplate = !highlighted
-        cached = (running, highlighted, time, image)
+        cached = (running, highlighted, text, image)
         return image
     }
 }
@@ -257,6 +263,7 @@ struct ProjectRow: View {
 /// A startable project/task. ⌘1–⌘9 start the first nine pins. The title opens it in Teamwork, as on the day rows.
 /// In pickers (the popover) the rest of the row starts it; in the window's lists (`startButton`) a Start button
 /// does, like the popover's day rows, so a stray click or double-click never starts anything.
+/// With `log`, a Log control (a button beside Start, or an icon on hover in pickers) logs time without a timer.
 struct WorkRow: View {
     @Environment(Store.self) private var store
     @Environment(\.openURL) private var openURL
@@ -267,6 +274,7 @@ struct WorkRow: View {
     /// Off inside a project's own task list.
     var showsProject = true
     var startButton = false
+    var log: (() -> Void)?
     let start: () -> Void
     @State private var hovering = false
 
@@ -278,6 +286,13 @@ struct WorkRow: View {
                 HStack(spacing: Space.s) {
                     labels(pinned: pinned, url: url)
                     startControl
+                    // Last, so it lines up down the list whatever Start / Resume / Running takes.
+                    if let log {
+                        Button(action: log) { Label("Log", systemImage: "clock.badge.checkmark") }
+                            .buttonStyle(.bordered)
+                            .help("Log time without starting a timer")
+                            .accessibilityLabel("Log time to \(item.title)")
+                    }
                 }
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.s)
@@ -287,7 +302,17 @@ struct WorkRow: View {
             } else {
                 HStack(spacing: Space.s) {
                     labels(pinned: pinned, url: url)
-                    // Quiet lists: the start affordance appears on hover.
+                    // Quiet lists: the log and start affordances appear on hover, as on timer rows. Hidden also
+                    // means out of the click order; VoiceOver reaches Log through the row's actions.
+                    if let log {
+                        Button(action: log) { Label("Log", systemImage: "clock.badge.checkmark") }
+                            .buttonStyle(RowIconStyle())
+                            .frame(width: 30)
+                            .help("Log time without starting a timer")
+                            .opacity(hovering ? 1 : 0)
+                            .disabled(!hovering)
+                            .animation(.easeOut(duration: 0.15), value: hovering)
+                    }
                     Image(systemName: "play.fill")
                         .foregroundStyle(.tint)
                         .opacity(hovering ? 1 : 0)
@@ -297,24 +322,27 @@ struct WorkRow: View {
                 .padding(.vertical, Space.s)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 // The start button sits behind the row rather than around it, so the title link isn't nested in
-                // a button. Everything but the link lets clicks through to it.
+                // a button. Everything but the link and Log lets clicks through to it.
                 .background {
                     Button(action: start) { Color.clear }
                         .buttonStyle(RowStyle())
-                        .onHover { hovering = $0 }
                         .keyboardShortcut(shortcut.map { KeyboardShortcut(KeyEquivalent(Character(String($0))), modifiers: .command) })
                 }
+                // On the row, not the start button behind it, so it stays on while the pointer is over Log.
+                .onHover { hovering = $0 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Starts a timer")
                 .accessibilityAction { start() }
                 .accessibilityActions {
+                    if let log { Button("Log time to \(item.title)", action: log) }
                     if let url { Button("Open in Teamwork") { openURL(url) } }
                 }
             }
         }
         .contextMenu {
             Button("Start Timer", action: start)
+            if let log { Button("Log Time…", action: log) }
             Button(pinned ? "Unpin" : "Pin") { store.togglePin(item) }
             if let url { Link("Open in Teamwork", destination: url) }
         }

@@ -7,7 +7,7 @@ struct MenuBarView: View {
 
     enum Screen: Equatable {
         case day, newTimer, pinned, logAll, summary
-        case log(TWTimer), edit(TWTimer), editEntry(TimeEntry)
+        case log(TWTimer), edit(TWTimer), editEntry(TimeEntry), logWork(WorkItem)
     }
 
     @State private var screen = Screen.day
@@ -38,12 +38,13 @@ struct MenuBarView: View {
                 case .pinned:
                     VStack(spacing: 0) {
                         ScreenHeader("Pinned") { screen = .day }
-                        PinnedList { item in start(item) }
+                        PinnedList(log: { screen = .logWork($0) }) { item in start(item) }
                     }
                 case .logAll: LogAllView { screen = .day }
                 case .log(let timer): LogView(timer: timer) { screen = .day }
                 case .edit(let timer): EditTimerView(timer: timer) { screen = .day }
                 case .editEntry(let entry): EditEntryView(entry: entry) { screen = .day }
+                case .logWork(let item): LogWorkView(item: item) { screen = .day }
                 }
             }
         }
@@ -358,6 +359,7 @@ struct TodayTotal: View {
 /// Pinned items (⌘1–⌘9) and today's due tasks: the quick "repeat what I always do" list.
 struct PinnedList: View {
     @Environment(Store.self) private var store
+    let log: (WorkItem) -> Void
     let start: (WorkItem) -> Void
 
     var body: some View {
@@ -371,13 +373,13 @@ struct PinnedList: View {
                 } else {
                     SectionHeader("Pinned", trailing: "⌘1–⌘\(min(store.pins.count, 9))")
                     ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
-                        WorkRow(item: item, shortcut: index < 9 ? index + 1 : nil, showsPin: false) { start(item) }
+                        WorkRow(item: item, shortcut: index < 9 ? index + 1 : nil, showsPin: false, log: { log(item) }) { start(item) }
                     }
                 }
                 let due = store.dueToday.filter { !store.isPinned($0) }
                 if !due.isEmpty {
                     SectionHeader("Due Today")
-                    ForEach(due) { item in WorkRow(item: item) { start(item) } }
+                    ForEach(due) { item in WorkRow(item: item, log: { log(item) }) { start(item) } }
                 }
             }
             .padding(.bottom, Space.s)

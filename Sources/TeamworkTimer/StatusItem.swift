@@ -1,10 +1,9 @@
 import SwiftUI
 
 /// The status item, the app's main timer display (as in Harvest): live time of the current timer,
-/// including one started on the web, or an icon when nothing is tracked. A click opens the popover,
-/// except on the Time badge's play/pause segment, which pauses or resumes the timer.
+/// including one started on the web, or an icon when nothing is tracked. A click opens the popover.
 /// Hand-made rather than a MenuBarExtra: macOS handles clicks on a MenuBarExtra item itself and only
-/// asks SwiftUI to open its window, so no part of that item could act as a button.
+/// asks SwiftUI to open its window.
 @MainActor final class StatusItem: NSObject, NSPopoverDelegate {
     private static var shared: StatusItem?
     private let store: Store
@@ -18,8 +17,8 @@ import SwiftUI
     }()
     /// Posted just before each open; the reused content goes back to today and reloads.
     static let willOpen = Notification.Name("StatusItem.willOpen")
-    /// The click that closed the popover, so that same click on the item doesn't reopen it.
-    private var closingClick: TimeInterval?
+    /// Event monitors that close the popover while it's open (see `watchOutside`).
+    private var monitors: [Any] = []
 
     static func install(_ store: Store) {
         shared = StatusItem(store: store)
@@ -33,7 +32,9 @@ import SwiftUI
             button.action = #selector(clicked)
             button.sendAction(on: [.leftMouseDown, .rightMouseDown])
         }
-        popover.behavior = .transient
+        // Only this item's own click opens and closes it. A transient popover closed itself on that click's
+        // mouse-up, then the click reached the app through MenuBarAgent ~0.3 s later and reopened it (logged).
+        popover.behavior = .applicationDefined
         // Content runs under the arrow, so the header's slate fills it and the arrow reads as part of the bar.
         popover.hasFullSizeContent = true
         // Instant, like a menu. While the close animation runs the popover still counts as shown, so
@@ -73,20 +74,23 @@ import SwiftUI
             return show(Self.symbol("timer"), title: "", label: "Teamwork Timer", in: button)
         }
         let state = timer.running ? "Running" : "Paused"
-        // Shape, not just colour, tells running from paused.
-        let glyph = Self.symbol(timer.running ? "play.fill" : "pause.fill")
-        guard style != .icon else { return show(glyph, title: "", label: state, in: button) }
+        // Shape, not just colour, tells running from paused: pause while running, as in Harvest.
+        let glyph = Self.symbol(timer.running ? "pause.fill" : "play.fill")
+        let highlight = defaults.object(forKey: "menuBarHighlight") as? Bool ?? true
+        guard style != .icon else {
+            let square = MenuBarBadge.image(.icon, running: timer.running, highlight: highlight, text: "")
+            return show(square ?? glyph, title: "", label: state, in: button)
+        }
         // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
         let elapsed = store.elapsed(timer, at: store.menuBarNow)
         let time = defaults.bool(forKey: "menuBarSeconds") ? elapsed.clock : elapsed.hoursMinutes
         let label = "\(state), \(elapsed.spoken)"
-        switch style {
-        case .badge:
-            let highlighted = timer.running && defaults.object(forKey: "menuBarHighlight") as? Bool ?? true
-            show(MenuBarBadge.image(running: timer.running, highlighted: highlighted, time: time), title: "", label: label, in: button)
-        // Leading space: the button sets its title flush against the image.
-        case .taskAndTime: show(glyph, title: " \(Self.shortened(store.title(of: timer)))  \(time)", label: label, in: button)
-        case .time, .icon: show(glyph, title: " \(time)", label: label, in: button)
+        let text = style == .taskAndTime ? "\(Self.shortened(store.title(of: timer)))  \(time)" : time
+        if let pill = MenuBarBadge.image(style, running: timer.running, highlight: highlight, text: text) {
+            show(pill, title: "", label: label, in: button)
+        } else {
+            // Leading space: the button sets its title flush against the image.
+            show(glyph, title: " \(text)", label: label, in: button)
         }
     }
 
@@ -101,41 +105,54 @@ import SwiftUI
     }
 
     @objc private func clicked(_ button: NSStatusBarButton) {
-        if NSApp.currentEvent?.type != .rightMouseDown, isOnSegment(button), let timer = store.activeTimer {
-            Task { await store.toggle(timer) }
-            return
-        }
         if popover.isShown {
             popover.performClose(nil)
-        } else if NSApp.currentEvent?.timestamp != closingClick {
-            NotificationCenter.default.post(name: Self.willOpen, object: nil)
-            NSApp.activate() // so the search field takes typing
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-            button.highlight(true)
+            return
         }
+        NotificationCenter.default.post(name: Self.willOpen, object: nil)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey() // takes typing even while another app is active
+        // Active before the first click lands. macOS declines plain activate() here (the item's click
+        // reaches the app through MenuBarAgent), so the popover's first click activated the app instead,
+        // and that activation closed the menu the same click had opened (the Open Window chevron).
+        // After makeKey, so the popover stays the key window once the app is active.
+        NSApp.activate(ignoringOtherApps: true)
+        button.highlight(true)
+        watchOutside()
     }
 
-    /// Whether the pointer is over the badge's play/pause segment. Measured from the pointer's screen
-    /// position against the copy of the item under it: macOS draws one copy per display, and the click
-    /// event it passes on always lands in the item's centre (measured on macOS 27).
-    private func isOnSegment(_ button: NSStatusBarButton) -> Bool {
-        guard UserDefaults.standard.string(forKey: "menuBarStyle") == MenuBarStyle.badge.rawValue,
-              store.activeTimer != nil, let image = button.image else { return false }
-        let mouse = NSEvent.mouseLocation
-        guard let copy = NSApp.windows.first(where: { $0.className == "NSStatusBarWindow" && $0.frame.contains(mouse) })
-        else { return false }
-        // AppKit centres the image in the item; the margin left of it counts as the segment too.
-        return mouse.x - copy.frame.minX < (copy.frame.width - image.size.width) / 2 + MenuBarBadge.segment
-    }
-
-    /// A transient popover closes on the mouse-down outside it, before the item's action runs.
-    func popoverWillClose(_ notification: Notification) {
-        closingClick = NSApp.currentEvent?.timestamp
+    /// While open: a click anywhere outside closes it (other apps, the desktop, other menu bar items, this
+    /// app's other windows), and so does Esc. A click on this item is left to `clicked(_:)`, which toggles.
+    private func watchOutside() {
+        let onItem = { NSApp.windows.contains { $0.level == .statusBar && $0.frame.contains(NSEvent.mouseLocation) } }
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
+            MainActor.assumeIsolated { if !onItem() { self?.popover.performClose(nil) } }
+        }) { monitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clicks.union(.keyDown), handler: { [weak self] event in
+            // true: the event closed the popover and goes no further (Esc).
+            let swallow = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return false }
+                // The popover's own window, or one it opened (a date picker's calendar is a child window).
+                var window = event.window
+                while let shown = window, shown !== self.popover.contentViewController?.view.window { window = shown.parent }
+                let inPopover = window != nil
+                if event.type == .keyDown {
+                    guard inPopover, event.keyCode == 53 else { return false } // Esc
+                    self.popover.performClose(nil)
+                    return true
+                }
+                if !inPopover, event.window?.level != .statusBar { self.popover.performClose(nil) }
+                return false
+            }
+            return swallow ? nil : event
+        }) { monitors.append(local) }
     }
 
     func popoverDidClose(_ notification: Notification) {
         item.button?.highlight(false)
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
     }
 
     private static func symbol(_ name: String) -> NSImage {

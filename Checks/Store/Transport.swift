@@ -4,6 +4,8 @@ final class MockState: @unchecked Sendable {
     let lock = NSLock()
     var mode = "normal"
     var calls: [String] = []
+    /// The last POSTed timelog body.
+    var body: [String: Any]?
     var posts: [Int: Int] = [:]
     var removed: Set<Int> = []
     var failedSecond = false
@@ -22,6 +24,14 @@ final class MockState: @unchecked Sendable {
             }
             if verb == "POST", path.hasSuffix("/timers.json") { return (403, "{}", 0) }
             if verb == "POST", path.hasSuffix("/time.json") {
+                // URLSession hands protocols the body as a stream.
+                if let stream = request.httpBodyStream {
+                    stream.open()
+                    var data = Data(), buffer = [UInt8](repeating: 0, count: 4096)
+                    while case let count = stream.read(&buffer, maxLength: buffer.count), count > 0 { data.append(buffer, count: count) }
+                    stream.close()
+                    body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                }
                 let id = Int(path.split(separator: "/").dropLast().last!)!
                 if mode == "partial", id == 202, !failedSecond { failedSecond = true; return (403, "{}", 0) }
                 posts[id, default: 0] += 1

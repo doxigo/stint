@@ -76,6 +76,74 @@ struct LogView: View {
     }
 }
 
+/// Logs time to a task or project without a timer: duration, day, notes, billable, mark task complete.
+/// On failure the form stays open with its input and the error above the action bar.
+struct LogWorkView: View {
+    @Environment(Store.self) private var store
+    let item: WorkItem
+    let done: () -> Void
+    @State private var duration = ""
+    @State private var day = Date.now
+    @State private var description = ""
+    @State private var billable = false
+    @State private var markComplete = false
+    @State private var saving = false
+
+    var body: some View {
+        let seconds = parseDuration(duration)
+        let valid = seconds.map { (60...86400).contains($0) } ?? false
+        VStack(spacing: 0) {
+            ScreenHeader("Log Time", back: done)
+            TaskSummary(title: item.title, subtitle: item.subtitle,
+                        url: store.webURL(projectId: item.projectId, taskId: item.taskId))
+            Divider()
+            FieldRow(label: "Duration", note: durationNote(seconds), noteIsError: !duration.isEmpty && !valid) {
+                DurationField(text: $duration)
+            }
+            RowDivider()
+            FieldRow(label: "Date") {
+                DatePicker("Date", selection: $day, in: ...Date.now, displayedComponents: .date).labelsHidden()
+            }
+            RowDivider()
+            NotesRow(text: $description)
+            RowDivider()
+            FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
+            if item.taskId != nil {
+                RowDivider()
+                FieldRow(label: "Mark task complete") {
+                    Toggle("Mark task complete", isOn: $markComplete).labelsHidden().toggleStyle(.switch)
+                }
+            }
+            ActionBar {
+                Button("Cancel", action: done)
+                Spacer()
+                Button("Log \(valid ? seconds!.hoursMinutes : "")") {
+                    guard let seconds else { return }
+                    saving = true
+                    Task {
+                        if await store.log(item, seconds: seconds, on: day, description: description, billable: billable,
+                                           markTaskComplete: markComplete) { done() }
+                        saving = false
+                    }
+                }
+                .primaryAction()
+                .disabled(saving || !valid)
+            }
+        }
+        .onAppear {
+            description = item.description
+            billable = item.billable
+        }
+    }
+
+    private func durationNote(_ seconds: TimeInterval?) -> String? {
+        if duration.isEmpty { return "Enter the time to log, like 1:30, 1.5h or 90m." }
+        guard let seconds else { return "Enter a duration like 1:30, 1.5h or 90m." }
+        if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
+        return seconds > 86400 ? "Enter at most 24 hours." : nil
+    }
+}
+
 /// Moves a running or paused timer to another project/task and edits its notes; the tracked time stays.
 struct EditTimerView: View {
     @Environment(Store.self) private var store

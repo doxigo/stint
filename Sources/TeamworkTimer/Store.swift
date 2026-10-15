@@ -92,6 +92,7 @@ final class Store {
     @ObservationIgnored private var completedTimers: Set<Int> = []
     @ObservationIgnored private var pollError: String?
     @ObservationIgnored private var starting: Set<String> = []
+    @ObservationIgnored private var loggingItems: Set<String> = []
     @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let logDirectory: URL
@@ -402,6 +403,37 @@ final class Store {
         await refreshToday()
         if logged && fresh { showToast("Logged \(seconds.hoursMinutes) to \(title(of: timer))") }
         return logged
+    }
+
+    /// Logs time straight to a task or project on `day`, with no timer created or touched.
+    /// Returns false if Teamwork refused.
+    func log(_ item: WorkItem, seconds: TimeInterval, on day: Date, description: String, billable: Bool,
+             markTaskComplete: Bool) async -> Bool {
+        guard seconds.isFinite, seconds >= 60, seconds <= 86400 else {
+            errorMessage = "Enter a duration between one minute and 24 hours."
+            return false
+        }
+        // A double click posts once.
+        let key = "\(item.projectId)-\(item.taskId ?? 0)"
+        guard loggingItems.insert(key).inserted else { return false }
+        defer { loggingItems.remove(key) }
+        let session = sessionID
+        // Ends at this time of day (now, for today), but never before the day starts, so it stays on that day.
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: day)
+        let end = dayStart.addingTimeInterval(Date.now.timeIntervalSince(calendar.startOfDay(for: .now)))
+        let start = max(dayStart, end.addingTimeInterval(-seconds))
+        // ponytail: no receipt as timers keep; a retry after an ambiguous failure (5xx, timeout) can log twice.
+        let posted: Void? = await perform {
+            try await $0.logTime(projectId: item.projectId, taskId: item.taskId, seconds: seconds, start: start,
+                                 description: description, billable: billable, markTaskComplete: markTaskComplete)
+        }
+        guard sessionID == session, posted != nil else { return false }
+        logRevision += 1
+        remember(item)
+        await refreshToday()
+        showToast("Logged \(seconds.hoursMinutes) to \(item.title)")
+        return true
     }
 
     func isLogging(_ id: Int) -> Bool { loggingTimers.contains(id) }
