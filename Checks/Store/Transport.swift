@@ -17,6 +17,9 @@ final class MockState: @unchecked Sendable {
             let page = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems?.first { $0.name == "page" }?.value ?? "1"
             calls.append("\(url.host!) \(verb) \(path)?page=\(page)")
             if path.hasSuffix("/me.json") { return (200, "{\"person\":{\"id\":\(user),\"firstName\":\"Test\",\"lastName\":\"User\"}}", 0) }
+            if path.hasSuffix("/workload.json") {
+                return (200, "{\"included\":{\"workingHourEntries\":{\"1\":{\"weekday\":\"thursday\",\"taskHours\":7.5},\"2\":{\"weekday\":\"friday\",\"taskHours\":6}}}}", 0)
+            }
             if verb == "POST", path.hasSuffix("/timers.json") { return (403, "{}", 0) }
             if verb == "POST", path.hasSuffix("/time.json") {
                 let id = Int(path.split(separator: "/").dropLast().last!)!

@@ -92,9 +92,9 @@ jobs:
           SIGNED: ${{ steps.mode.outputs.signed }}
         run: |
           if [ "$SIGNED" = true ]; then
-            gh release create "$GITHUB_REF_NAME" build/TeamworkTimer.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" build/Stint.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
           else
-            gh release create "$GITHUB_REF_NAME" build/TeamworkTimer.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+            gh release create "$GITHUB_REF_NAME" build/Stint.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
               --prerelease --notes-file .github/unsigned-release.md
           fi
       - name: Clean signing credentials

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds "build/Teamwork Timer.app" without Xcode.
+# Builds "build/Stint.app" (Stint for Teamwork) without Xcode.
 set -eu
 cd "$(dirname "$0")"
 if [ -n "${SIGNING_IDENTITY:-}" ]; then
@@ -18,7 +18,7 @@ fi
 clt_sdk=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk
 case "$(xcode-select -p)" in */CommandLineTools) [ -d "$clt_sdk" ] && export SDKROOT="$clt_sdk" ;; esac
 swift build -c release
-app="build/Teamwork Timer.app"
+app="build/Stint.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/TeamworkTimer "$app/Contents/MacOS/"
@@ -30,10 +30,10 @@ cp Resources/AppIcon.icns "$app/Contents/Resources/"
 make_dmg() {
     stage=$(mktemp -d)
     chmod 755 "$stage" # mktemp makes it owner-only; the volume root inherits this
-    ditto "$app" "$stage/Teamwork Timer.app"
+    ditto "$app" "$stage/Stint.app"
     ln -s /Applications "$stage/Applications"
     rm -f "$1"
-    hdiutil create -volname "Teamwork Timer" -srcfolder "$stage" -format UDZO -ov "$1" >/dev/null
+    hdiutil create -volname "Stint" -srcfolder "$stage" -format UDZO -ov "$1" >/dev/null
     rm -rf "$stage"
 }
 
@@ -44,7 +44,7 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$app"
     codesign --verify --deep --strict "$app"
     # Apple's flow for disk images: sign the image, notarize it (which covers the app inside), staple it.
-    archive="build/TeamworkTimer.dmg"
+    archive="build/Stint.dmg"
     make_dmg "$archive"
     codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$archive"
     if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
@@ -62,13 +62,13 @@ fi
 if [ -n "${UNSIGNED_RELEASE:-}" ]; then
     codesign --force --sign - "$app"
     codesign --verify --deep --strict "$app"
-    archive="build/TeamworkTimer.dmg"
+    archive="build/Stint.dmg"
     make_dmg "$archive"
     echo "$archive"
     exit 0
 fi
 keychain="$PWD/.signing/dev.keychain-db"
-identity="Teamwork Timer Local Signing"
+identity="Teamwork Timer Local Signing" # internal; renaming it would mint a new identity (new Keychain prompts)
 if [ ! -f "$keychain" ]; then
     mkdir -p .signing
     tmp=$(mktemp -d)
@@ -83,4 +83,22 @@ if [ ! -f "$keychain" ]; then
 fi
 security unlock-keychain -p dev "$keychain"
 codesign --force --keychain "$keychain" --sign "$identity" "$app"
-echo "$app"
+# Install the local build where it belongs (Spotlight, Launchpad, login items). INSTALL=0 skips this.
+installed="/Applications/Stint.app"
+owner=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$installed/Contents/Info.plist" 2>/dev/null || true)
+if [ "${INSTALL:-1}" = 0 ]; then
+    echo "$app"
+elif [ -e "$installed" ] && [ "$owner" != com.doxigo.TeamworkTimer ]; then
+    # Never replace another app with the same name.
+    echo "$installed is another app (${owner:-unknown}); left it alone. This build is at $app" >&2
+    echo "$app"
+else
+    rm -rf "$installed"
+    ditto "$app" "$installed"
+    # Builds before the rename installed "Teamwork Timer.app": remove that copy if it is this app.
+    legacy="/Applications/Teamwork Timer.app"
+    if [ "$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$legacy/Contents/Info.plist" 2>/dev/null || true)" = com.doxigo.TeamworkTimer ]; then
+        rm -rf "$legacy"
+    fi
+    echo "$installed"
+fi

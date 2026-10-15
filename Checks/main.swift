@@ -94,13 +94,26 @@ check(taskID(fromLink: "https://acme.teamwork.com/app/tasks/9/comments") == 9, "
 check(taskID(fromLink: "https://acme.teamwork.com/app/tasklists/77") == nil, "link: tasklist is not a task")
 check(taskID(fromLink: "subtasks/5") == nil && taskID(fromLink: "standup") == nil, "link: not a link")
 
-// Weekly target counts Monday–Friday only.
+// Targets: Teamwork's hours per weekday, else lengthOfDay Monday–Friday; a custom day replaces each working day.
 var gregorian = Calendar(identifier: .gregorian)
 gregorian.timeZone = TimeZone(identifier: "UTC")!
 let week = DateInterval(start: iso("2026-10-12T00:00:00Z"), end: iso("2026-10-19T00:00:00Z")) // Mon..Sun
-check(weekdays(in: week, calendar: gregorian) == 5, "weekdays in a week")
-check(weekdays(in: DateInterval(start: iso("2026-10-17T00:00:00Z"), duration: 86_400), calendar: gregorian) == 0,
-      "Saturday has no target")
+let friday = DateInterval(start: iso("2026-10-16T00:00:00Z"), duration: 86_400)
+let saturday = DateInterval(start: iso("2026-10-17T00:00:00Z"), duration: 86_400)
+let h = 3600.0
+let weekdays = { (length: TimeInterval) in Dictionary(uniqueKeysWithValues: (2...6).map { ($0, length) }) }
+let shortFriday = workingDays(teamwork: [2: 7.5 * h, 3: 7.5 * h, 4: 7.5 * h, 5: 7.5 * h, 6: 6 * h, 7: 0], lengthOfDay: 8 * h, custom: nil)
+check(workTarget(in: week, days: shortFriday, calendar: gregorian) == 36 * h, "week target sums each weekday's hours")
+check(workTarget(in: friday, days: shortFriday, calendar: gregorian) == 6 * h, "a shorter Friday")
+check(workTarget(in: saturday, days: shortFriday, calendar: gregorian) == nil, "a 0-hour Saturday has no target")
+check(workingDays(teamwork: nil, lengthOfDay: 8 * h, custom: nil) == weekdays(8 * h), "no working hours: lengthOfDay Monday–Friday")
+check(workingDays(teamwork: [7: 0], lengthOfDay: 8 * h, custom: nil) == weekdays(8 * h), "all-zero working hours fall back too")
+check(workingDays(teamwork: shortFriday, lengthOfDay: 8 * h, custom: 7.5 * h) == weekdays(7.5 * h), "custom day on Teamwork's working days")
+check(workingDays(teamwork: [2: 4 * h, 4: 4 * h], lengthOfDay: 8 * h, custom: 7.5 * h) == [2: 7.5 * h, 4: 7.5 * h], "custom keeps days off")
+check(workingDays(teamwork: nil, lengthOfDay: nil, custom: 7.5 * h) == weekdays(7.5 * h), "custom without anything from Teamwork")
+check(workingDays(teamwork: nil, lengthOfDay: nil, custom: nil).isEmpty, "no target without a length")
+check(try fixture(WorkloadResponse.self, "workload.json").hours == [2: 27_000, 3: 27_000, 4: 27_000, 5: 27_000, 6: 21_600],
+      "real: working hours per weekday from the workload")
 
 // Formats sent to and shown from Teamwork.
 check((5025.0).hoursMinutes == "1:23" && (3599.0).hoursMinutes == "0:59", "h:mm truncates")
@@ -142,6 +155,9 @@ for bad in ["/callback?code=abc", "/callback?code=abc&state=wrong", "/wrong?code
 }
 check(callback("/callback?code=abc&state=expected", method: "POST").isEmpty, "oauth rejects wrong method")
 check(callbackQuery(fromRequest: "GET /callback?code=abc&state=expected HTTP/1.1\r\n", redirect: redirect, state: "expected").isEmpty, "oauth waits for complete headers")
+check(APIError(status: 403, detail: #"{"errors":[{"title":"Forbidden","detail":"A timer already exists for this task"}]}"#).errorDescription
+      == "Teamwork denied access (403). A timer already exists for this task", "403 shows Teamwork's reason")
+check(APIError(status: 403, detail: "<html>").errorDescription == "Teamwork denied access (403).", "403 without a reason")
 check(callbackQuery(fromRequest: "GET /callback/?code=abc&state=s HTTP/1.1\r\n\r\n", redirect: URL(string: "http://localhost:8123/callback/")!, state: "s")["code"] == "abc",
       "oauth keeps a trailing slash in the redirect path")
 check(callbackQuery(fromRequest: "GET /?code=abc&state=s HTTP/1.1\r\n\r\n", redirect: URL(string: "http://localhost:8123")!, state: "s")["code"] == "abc",
@@ -166,8 +182,10 @@ check(overlap.trackedTime(from: t0.addingTimeInterval(-1000), to: t0.addingTimeI
 check(Credentials(kind: .apiToken, site: URL(string: "https://a.teamwork.com/")!, secret: "tok").authorization
       == "Basic " + Data("tok:x".utf8).base64EncodedString(), "basic auth header")
 
-let badge = MenuBarBadge.image(running: true, time: "1:30")
-check(MenuBarBadge.image(running: true, time: "1:30") === badge, "menu badge reuses unchanged image")
-check(MenuBarBadge.image(running: false, time: "1:30") !== badge, "menu badge redraws changed state")
+let badge = MenuBarBadge.image(running: true, highlighted: false, time: "1:30")
+check(MenuBarBadge.image(running: true, highlighted: false, time: "1:30") === badge, "menu badge reuses unchanged image")
+check(MenuBarBadge.image(running: false, highlighted: false, time: "1:30") !== badge, "menu badge redraws changed state")
+check(badge.isTemplate && !MenuBarBadge.image(running: true, highlighted: true, time: "1:30").isTemplate,
+      "highlighted badge keeps its brand colour; plain badge follows the menu bar tint")
 print(failed == 0 ? "All checks passed." : "\(failed) check(s) failed.")
 exit(failed == 0 ? 0 : 1)

@@ -7,9 +7,19 @@ struct APIError: LocalizedError {
     var errorDescription: String? {
         switch status {
         case 401: "Teamwork rejected the sign-in (401). Sign in again in Settings."
-        case 403: "Teamwork denied access (403)."
-        default: "Teamwork returned \(status). \(detail)"
+        case 403: "Teamwork denied access (403).\(reason.map { " \($0)" } ?? "")"
+        default: "Teamwork returned \(status). \(reason ?? detail)"
         }
+    }
+
+    /// Teamwork's own explanation from a v3 error body (`{"errors":[{"title","detail"}]}`), if there is one.
+    var reason: String? {
+        struct Body: Decodable {
+            struct Item: Decodable { let title: String?; let detail: String? }
+            let errors: [Item]?
+        }
+        guard let item = (try? JSONDecoder().decode(Body.self, from: Data(detail.utf8)))?.errors?.first else { return nil }
+        return [item.detail, item.title].compactMap { $0 }.first { !$0.isEmpty }
     }
 }
 
@@ -33,11 +43,18 @@ actor TeamworkClient {
 
     // MARK: Account
 
-    /// The signed-in person; doubles as a credentials check. `dayLength` is their working day, in seconds.
-    func me() async throws -> (id: Int, name: String, dayLength: TimeInterval?) {
+    /// The signed-in person; doubles as a credentials check. `dayLength` is their working day and `hours` their
+    /// working hours per weekday (see `WorkloadResponse`), in seconds.
+    func me() async throws -> (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?) {
         let me = try await get(MeResponse.self, "projects/api/v3/me.json").person
+        // Optional: without working hours (or access to them) the target falls back to lengthOfDay.
+        let today = Date.now.formatted(.iso8601.year().month().day())
+        let hours = try? await get(WorkloadResponse.self, "projects/api/v3/workload.json", [
+            .init(name: "userIds", value: String(me.id)), .init(name: "startDate", value: today), .init(name: "endDate", value: today),
+            .init(name: "include", value: "users.workingHours,users.workingHours.workingHoursEntry"),
+        ]).hours
         return (me.id, "\(me.firstName) \(me.lastName)".trimmingCharacters(in: .whitespaces),
-                me.lengthOfDay.flatMap { $0 > 0 ? $0 * 3600 : nil })
+                me.lengthOfDay.flatMap { $0 > 0 ? $0 * 3600 : nil }, hours)
     }
 
     // MARK: Timers
@@ -334,4 +351,23 @@ struct MeResponse: Decodable, Sendable {
         var lengthOfDay: Double?
     }
     let person: Person
+}
+
+/// Only the working hours (Edit My Details › Working Hours) of a workload; v3 has no other way to read them.
+struct WorkloadResponse: Decodable, Sendable {
+    struct Entry: Decodable, Sendable {
+        let weekday: String
+        let taskHours: Double?
+    }
+    struct Included: Decodable, Sendable { var workingHourEntries: [String: Entry]? }
+    let included: Included
+
+    /// Seconds per `Calendar` weekday (1 = Sunday); nil if none are set.
+    var hours: [Int: TimeInterval]? {
+        let names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+        let hours = Dictionary((included.workingHourEntries ?? [:]).values.compactMap { entry in
+            names.firstIndex(of: entry.weekday).map { ($0 + 1, (entry.taskHours ?? 0) * 3600) }
+        }, uniquingKeysWith: max)
+        return hours.isEmpty ? nil : hours
+    }
 }

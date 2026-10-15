@@ -139,7 +139,7 @@ enum LoopbackServer {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) { connection.cancel() }
                 receiveRequest(connection) { request in
                     let query = callbackQuery(fromRequest: request, redirect: redirect, state: state)
-                    let message = query["code"] != nil ? "Return to Teamwork Timer to finish signing in. You can close this tab." : "Sign-in didn't finish. You can close this tab."
+                    let message = query["code"] != nil ? "Return to Stint to finish signing in. You can close this tab." : "Sign-in didn't finish. You can close this tab."
                     let page = "<html><body style=\"font: 15px -apple-system, sans-serif; padding: 40px\">\(message)</body></html>"
                     let response = "HTTP/1.1 \(query.isEmpty ? "400 Bad Request" : "200 OK")\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n\(page)"
                     connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })

@@ -49,6 +49,8 @@ struct MainWindow: View {
                 }
             }
             .frame(minWidth: 420)
+            // Bottom of the page, clear of each page's own top bar (the Today week strip, toolbars).
+            .overlay { ToastOverlay(edge: .bottom) }
             .safeAreaInset(edge: .bottom) {
                 ErrorBanner().background(.bar)
             }
@@ -287,12 +289,8 @@ struct EntriesView: View {
     private var weekEntries: [TimeEntry]? { store.weeks[week.start] }
     private var entries: [TimeEntry] { (weekEntries ?? []).filter { $0.timeLogged.map(interval.contains) ?? false } }
     private var total: TimeInterval { TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60) }
-    /// Working-day target × weekdays in view; nil without a target or on a weekend.
-    private var target: TimeInterval? {
-        guard let day = store.dayTarget else { return nil }
-        let days = weekdays(in: interval)
-        return days > 0 ? day * Double(days) : nil
-    }
+    /// Working hours in view; nil on days off.
+    private var target: TimeInterval? { store.target(in: interval) }
 
     private var days: [(day: Date, entries: [TimeEntry])] {
         Dictionary(grouping: entries) { calendar.startOfDay(for: $0.timeLogged ?? interval.start) }
@@ -331,7 +329,7 @@ struct EntriesView: View {
                     }
                 } header: {
                     let logged = TimeInterval(group.entries.reduce(0) { $0 + $1.minutes } * 60)
-                    let goal = store.dayTarget.flatMap { weekdays(in: DateInterval(start: group.day, duration: 86_400)) > 0 ? $0 : nil }
+                    let goal = store.target(in: calendar.dateInterval(of: .day, for: group.day)!)
                     SectionHeader(group.day.formatted(.dateTime.weekday(.wide).month().day()),
                                   trailing: goal.map { "\(logged.hoursMinutes) / \($0.hoursMinutes)" } ?? logged.hoursMinutes)
                 }
@@ -399,7 +397,7 @@ struct PinnedView: View {
     var body: some View {
         Page {
             ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
-                WorkRow(item: item, showsPin: false) { Task { await store.start(item) } }
+                WorkRow(item: item, showsPin: false, startButton: true) { Task { await store.start(item) } }
                     .draggable(item.id)
                     .dropDestination(for: String.self) { ids, _ in
                         guard let from = store.pins.firstIndex(where: { $0.id == ids.first }) else { return false }
@@ -482,7 +480,7 @@ struct ProjectTasks: View {
 
     private func rows(_ items: [WorkItem]) -> some View {
         ForEach(items) { item in
-            WorkRow(item: item, showsProject: false) { Task { await store.start(item) } }
+            WorkRow(item: item, showsProject: false, startButton: true) { Task { await store.start(item) } }
             RowDivider()
         }
     }
@@ -497,7 +495,7 @@ struct MyTasksView: View {
     var body: some View {
         Page {
             ForEach(items) { item in
-                WorkRow(item: item) { Task { await store.start(item) } }
+                WorkRow(item: item, startButton: true) { Task { await store.start(item) } }
                 RowDivider()
             }
         }

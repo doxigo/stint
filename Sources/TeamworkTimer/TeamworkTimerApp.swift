@@ -2,26 +2,21 @@ import SwiftUI
 
 @main
 struct TeamworkTimerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store: Store
 
     init() {
         let store = Store()
         _store = State(initialValue: store)
         HotKey.apply(HotKey.saved) { Task { await store.pauseOrResume() } }
-        if UserDefaults.standard.bool(forKey: "miniTimer") {
-            Task { MiniTimer.setShown(true, store: store) }
+        Task {
+            StatusItem.install(store)
+            if UserDefaults.standard.bool(forKey: "miniTimer") { MiniTimer.setShown(true, store: store) }
         }
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarView().environment(store).id(store.sessionID)
-        } label: {
-            MenuBarLabel().environment(store)
-        }
-        .menuBarExtraStyle(.window)
-
-        Window("Teamwork Timer", id: "main") {
+        Window("Stint", id: "main") {
             MainWindow().environment(store).tint(Brand.purple).id(store.sessionID)
         }
         .defaultSize(width: 920, height: 620)
@@ -30,12 +25,21 @@ struct TeamworkTimerApp: App {
     }
 }
 
+/// The status item is the app's main surface, so it keeps running with no window open. (SwiftUI quits
+/// an app whose only scene is a Window once that window, or the popover, closes.)
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
 /// Menu bar commands; each calls the same Store action as its button.
 struct AppCommands: Commands {
     let store: Store
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Commands exist from launch, so they hand the store a way to open the main window
+        // (used by the end-of-day notification's "Log All…" and the status item's popover).
+        let _ = store.openMainWindow = { [openWindow] in openWindow(id: "main") }
         // Settings live in the main window's sidebar rather than a separate window.
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") {

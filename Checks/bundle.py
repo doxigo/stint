@@ -39,7 +39,7 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     calls = (root / 'calls').read_text()
     assert 'codesign --force --sign -' in calls, 'explicit unsigned release is ad-hoc signed'
     assert 'notarytool' not in calls and 'stapler' not in calls, 'unsigned release never claims notarization'
-    assert (root / 'build/TeamworkTimer.dmg').exists(), 'unsigned release produces the disk image'
+    assert (root / 'build/Stint.dmg').exists(), 'unsigned release produces the disk image'
     (root / 'calls').unlink()
     env.update(SIGNING_IDENTITY='Developer ID Application: Fixture (TEST)', NOTARY_PROFILE='profile')
     run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, FAIL_NOTARY='1'), capture_output=True)
@@ -53,10 +53,10 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     assert any('--options runtime --timestamp' in line for line in calls)
     assert any('codesign --verify --deep --strict' in line for line in calls)
     image = next(i for i, line in enumerate(calls) if line.startswith('hdiutil create'))
-    signed = next(i for i, line in enumerate(calls) if line.startswith('codesign') and 'TeamworkTimer.dmg' in line)
-    submit = next(i for i, line in enumerate(calls) if 'notarytool submit build/TeamworkTimer.dmg' in line)
-    staple = next(i for i, line in enumerate(calls) if 'stapler staple build/TeamworkTimer.dmg' in line)
-    validate = next(i for i, line in enumerate(calls) if 'stapler validate build/TeamworkTimer.dmg' in line)
+    signed = next(i for i, line in enumerate(calls) if line.startswith('codesign') and 'Stint.dmg' in line)
+    submit = next(i for i, line in enumerate(calls) if 'notarytool submit build/Stint.dmg' in line)
+    staple = next(i for i, line in enumerate(calls) if 'stapler staple build/Stint.dmg' in line)
+    validate = next(i for i, line in enumerate(calls) if 'stapler validate build/Stint.dmg' in line)
     assert image < signed < submit < staple < validate, 'disk image is signed, then notarized, then stapled'
     assert '--options runtime' in calls[next(i for i, line in enumerate(calls) if line.startswith('codesign --force'))], 'app is signed with the hardened runtime first'
 print('All release packaging checks passed.')

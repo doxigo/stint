@@ -58,13 +58,27 @@ final class Store {
     var section: Section? = .timers
     var showingNewTimer = false
     var showingLogAll = false
-    /// Your working day from Teamwork (`lengthOfDay`), in seconds; nil if not set.
-    private(set) var dayTarget: TimeInterval?
+    /// Your working hours per weekday and working day (`lengthOfDay`) from Teamwork, in seconds; nil if not set.
+    private(set) var teamworkHours: [Int: TimeInterval]?
+    private(set) var teamworkDayLength: TimeInterval?
+    /// Your own working day from Settings, replacing Teamwork's on each working day; nil uses Teamwork's.
+    var customDayLength: TimeInterval? {
+        didSet { defaults.set(customDayLength, forKey: "customDayLength") }
+    }
     /// Tasks assigned to you and due today, for the popover.
     private(set) var dueToday: [WorkItem] = []
     /// Opens the main window from places without a SwiftUI environment (notification actions).
     @ObservationIgnored var openMainWindow: (() -> Void)?
     var errorMessage: String?
+    /// A short confirmation after a successful write (`ToastOverlay` shows it). Failures go to `errorMessage`.
+    private(set) var toast: Toast?
+    @ObservationIgnored private var toastExpiry: Task<Void, Never>?
+
+    struct Toast: Equatable {
+        let id = UUID()
+        let message: String
+        let symbol: String
+    }
 
     private var projectNames: [Int: String] = [:]
     private var taskNames: [Int: String] = [:]
@@ -77,6 +91,7 @@ final class Store {
     private var loggingTimers: Set<Int> = []
     @ObservationIgnored private var completedTimers: Set<Int> = []
     @ObservationIgnored private var pollError: String?
+    @ObservationIgnored private var starting: Set<String> = []
     @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let logDirectory: URL
@@ -93,10 +108,16 @@ final class Store {
     var activeTimer: TWTimer? { timers.first(where: \.running) ?? timers.first }
     var runningTimer: TWTimer? { timers.first(where: \.running) }
 
+    /// Seconds to work in an interval (a day, a week); nil when it has no working days.
+    func target(in interval: DateInterval) -> TimeInterval? {
+        workTarget(in: interval, days: workingDays(teamwork: teamworkHours, lengthOfDay: teamworkDayLength, custom: customDayLength))
+    }
+
     init(defaults: UserDefaults = .standard,
          logDirectory: URL = URL.applicationSupportDirectory.appending(path: "com.doxigo.TeamworkTimer/LogAttempts")) {
         self.defaults = defaults
         self.logDirectory = logDirectory
+        customDayLength = defaults.object(forKey: "customDayLength") as? TimeInterval
         reminders.store = self
         idle = IdleMonitor(store: self)
         do {
@@ -154,7 +175,8 @@ final class Store {
         site = nil
         accountName = nil
         userId = nil
-        dayTarget = nil
+        teamworkHours = nil
+        teamworkDayLength = nil
         timers = []
         starred = []
         pins = []
@@ -173,6 +195,7 @@ final class Store {
         showingNewTimer = false
         showingLogAll = false
         errorMessage = nil
+        toast = nil
         idle?.reset()
         reminders.reset()
         updateTicker()
@@ -206,9 +229,9 @@ final class Store {
         if Reminders.longTimerAlert { await Reminders.requestPermission() }
     }
 
-    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?)) {
+    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?)) {
         accountReady = false
-        (userId, accountName, dayTarget) = (me.id, me.name, me.dayLength)
+        (userId, accountName, teamworkDayLength, teamworkHours) = (me.id, me.name, me.dayLength, me.hours)
         pins = load("pins") ?? adoptLegacy("pins") ?? []
         recents = load("recents") ?? adoptLegacy("recents") ?? []
         adjustments = load("adjustments") ?? adoptLegacy("adjustments") ?? [:]
@@ -313,7 +336,22 @@ final class Store {
 
     // MARK: Timer actions
 
+    /// The timer already tracking this work, if any. Teamwork allows one timer per task.
+    func timer(for item: WorkItem) -> TWTimer? {
+        timers.first { $0.projectId == item.projectId && $0.taskId == item.taskId }
+    }
+
     func start(_ item: WorkItem) async {
+        // Teamwork refuses a second timer on the same task (403): resume or keep the existing one instead.
+        if let existing = timer(for: item) {
+            if !existing.running { await toggle(existing) }
+            remember(item)
+            return
+        }
+        // A double click sends one request.
+        let key = "\(item.projectId)-\(item.taskId ?? 0)"
+        guard starting.insert(key).inserted else { return }
+        defer { starting.remove(key) }
         if await perform({ try await $0.startTimer(item) }) != nil { remember(item) }
         await refresh()
     }
@@ -354,12 +392,15 @@ final class Store {
     func log(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, description: String, billable: Bool,
              markTaskComplete: Bool) async -> Bool {
         let session = sessionID
+        // A receipt means this time was logged earlier and only the leftover timer goes now: no "Logged" toast.
+        let fresh = logAttempts[timer.id] == nil
         let logged = await logTimer(timer, seconds: seconds, durationEdited: durationEdited,
                                     description: description, billable: billable, markTaskComplete: markTaskComplete)
         guard sessionID == session else { return false }
         if logged { logRevision += 1 }
         await refresh()
         await refreshToday()
+        if logged && fresh { showToast("Logged \(seconds.hoursMinutes) to \(title(of: timer))") }
         return logged
     }
 
@@ -461,6 +502,11 @@ final class Store {
         if !logged.isEmpty { logRevision += 1 }
         await refresh()
         await refreshToday()
+        // Only when all went through: after a partial batch the form stays open with the error.
+        if !drafts.isEmpty && logged.count == drafts.count {
+            let total = drafts.reduce(0) { $0 + $1.seconds }.hoursMinutes
+            showToast(drafts.count == 1 ? "Logged \(total) to \(title(of: drafts[0].timer))" : "Logged \(drafts.count) timers · \(total)")
+        }
         return logged
     }
 
@@ -477,6 +523,7 @@ final class Store {
         let ok: Void? = await perform { try await $0.update(timer, target: target, description: description, billable: billable) }
         if ok != nil, let target { remember(target) }
         await refresh()
+        if ok != nil { showToast(target.map { "Timer moved to \($0.title)" } ?? "Timer updated") }
         return ok != nil
     }
 
@@ -484,12 +531,15 @@ final class Store {
         let ok: Void? = await perform { try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable) }
         if ok != nil { logRevision += 1 }
         await refreshToday()
+        if ok != nil { showToast("Entry updated") }
         return ok != nil
     }
 
     func deleteEntry(_ entry: TimeEntry) async {
-        if await perform({ try await $0.deleteEntry(entry.id) }) != nil { logRevision += 1 }
+        let ok: Void? = await perform { try await $0.deleteEntry(entry.id) }
+        if ok != nil { logRevision += 1 }
         await refreshToday()
+        if ok != nil { showToast("Entry deleted", symbol: "trash") }
     }
 
     /// The task a pasted or dropped Teamwork link points to.
@@ -503,8 +553,9 @@ final class Store {
     }
 
     func discard(_ timer: TWTimer) async {
-        await perform { try await $0.delete(timer.id) }
+        let ok: Void? = await perform { try await $0.delete(timer.id) }
         await refresh()
+        if ok != nil { showToast("Timer discarded", symbol: "trash") }
     }
 
     /// Idle prompt outcome: drop `seconds` from the timer, optionally pausing it.
@@ -589,6 +640,23 @@ final class Store {
     }
 
     // MARK: Helpers
+
+    /// Shows a confirmation for 2 s (after the list has refreshed, so it lands with the change), replacing
+    /// any earlier one, and reads it to VoiceOver.
+    private func showToast(_ message: String, symbol: String = "checkmark.circle.fill") {
+        toast = Toast(message: message, symbol: symbol)
+        AccessibilityNotification.Announcement(message).post()
+        toastExpiry?.cancel()
+        toastExpiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { self?.toast = nil }
+        }
+    }
+
+    func dismissToast() {
+        toastExpiry?.cancel()
+        toast = nil
+    }
 
     @discardableResult
     private func perform<T: Sendable>(_ work: @escaping @MainActor (TeamworkClient) async throws -> T) async -> T? {

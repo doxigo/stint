@@ -236,15 +236,24 @@ func taskID(fromLink text: String) -> Int? {
     return Int(match.1)
 }
 
-/// Mondays to Fridays in an interval, for weekly targets.
-func weekdays(in interval: DateInterval, calendar: Calendar = .current) -> Int {
-    var count = 0
+/// Seconds to work per weekday (`Calendar` weekday, 1 = Sunday): Teamwork's working hours, else its `lengthOfDay`
+/// Monday to Friday. `custom` (Settings) replaces the length of each working day.
+func workingDays(teamwork: [Int: TimeInterval]?, lengthOfDay: TimeInterval?, custom: TimeInterval?) -> [Int: TimeInterval] {
+    var days = teamwork?.filter { $0.value > 0 } ?? [:]
+    if days.isEmpty, let length = lengthOfDay ?? custom { for weekday in 2...6 { days[weekday] = length } }
+    if let custom { days = days.mapValues { _ in custom } }
+    return days
+}
+
+/// Seconds to work in an interval, for daily and weekly targets; nil when it has no working days.
+func workTarget(in interval: DateInterval, days: [Int: TimeInterval], calendar: Calendar = .current) -> TimeInterval? {
+    var total: TimeInterval = 0
     var day = calendar.startOfDay(for: interval.start)
     while day < interval.end {
-        if (2...6).contains(calendar.component(.weekday, from: day)) { count += 1 }
+        total += days[calendar.component(.weekday, from: day)] ?? 0
         day = calendar.date(byAdding: .day, value: 1, to: day)!
     }
-    return count
+    return total > 0 ? total : nil
 }
 
 /// Query items of the browser's loopback request, e.g. "GET /?code=abc HTTP/1.1" → ["code": "abc"].

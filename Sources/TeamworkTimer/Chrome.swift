@@ -88,6 +88,45 @@ struct ErrorBanner: View {
     }
 }
 
+/// `Store.toast` as a purple pill, laid over a view so it never moves the layout. It eases a few points in
+/// from `edge` (a plain fade under Reduce Motion) and leaves after 2 s, on a click, or for a newer toast.
+/// ponytail: one-shot transitions only; anything repeating would redraw the popover nonstop (see LiveDot).
+struct ToastOverlay: View {
+    @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var edge: VerticalEdge = .top
+
+    var body: some View {
+        ZStack {
+            if let toast = store.toast {
+                Button(action: store.dismissToast) {
+                    Label(toast.message, systemImage: toast.symbol)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Space.m)
+                        .padding(.vertical, Space.xs)
+                        // Fixed brand purple in both appearances (white stays at 6.9:1); the hairline
+                        // separates it from dark surfaces, the shadow from light ones.
+                        .background(Brand.purpleFill, in: .capsule)
+                        .overlay { Capsule().strokeBorder(.white.opacity(0.2)) }
+                        .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss")
+                .accessibilityHint("Dismisses this message")
+                .id(toast.id)
+                .transition(reduceMotion ? .opacity
+                            : .opacity.combined(with: .offset(y: edge == .top ? -Space.xs : Space.xs)))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
+        .padding(Space.s)
+        .animation(.snappy(duration: 0.2), value: store.toast?.id)
+    }
+}
+
 /// Confirms a destructive action in place of the row it affects. Inline rather than a dialog: dialogs
 /// attached to the menu-bar window can close it and lose the action. The row's title stays visible.
 struct ConfirmRow: View {

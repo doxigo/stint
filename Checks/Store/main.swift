@@ -19,6 +19,7 @@ let second = store.timers.first { $0.id == 2 }!
 let drafts = [(timer: first, seconds: 900.0, durationEdited: true, billable: false), (timer: second, seconds: 900.0, durationEdited: true, billable: false)]
 state.lock.withLock { state.mode = "partial"; state.calls = [] }
 check(await store.logAll(drafts) == [1], "partial batch reports successful IDs")
+check(store.toast == nil, "a partly failed batch shows no success toast")
 check(await store.logAll(drafts) == [1, 2], "partial batch retry completes safely")
 check(state.lock.withLock { state.posts[101] == 1 && state.posts[202] == 1 }, "batch retry never reposts successful timer")
 check(store.errorMessage != nil, "refresh preserves failed write error")
@@ -69,6 +70,7 @@ check(state.lock.withLock { state.posts[101] == 1 }, "ambiguous post is not repe
 state.lock.withLock { state.mode = "normal" }
 await store.resolveLog(first, entryExists: true)
 check(state.lock.withLock { state.posts[101] == 1 && state.removed.contains(1) }, "confirmed entry only cleans up timer")
+check(store.toast == nil, "removing a leftover timer is not reported as a new log")
 try store.signOut()
 
 state.lock.withLock { state.removed = []; state.posts = [:] }
@@ -104,8 +106,21 @@ try store.signOut()
 try await store.signIn(site: "new.teamwork.com", token: "placeholder")
 await oldRefresh.value
 check(store.timers.allSatisfy { $0.id != 999 }, "late old-account refresh cannot overwrite session")
-await store.start(WorkItem(projectId: 101, projectName: "Denied"))
+await store.start(WorkItem(projectId: 303, projectName: "Denied"))
 check(store.errorMessage?.contains("403") == true, "failed write remains visible after successful refresh")
+state.lock.withLock { state.calls = [] }
+let fresh = WorkItem(projectId: 404, projectName: "New")
+async let firstClick: Void = store.start(fresh)
+async let secondClick: Void = store.start(fresh)
+_ = await (firstClick, secondClick)
+check(state.lock.withLock { state.calls.filter { $0.contains("POST") && $0.contains("/me/timers.json") }.count } == 1, "a double click creates one timer")
+state.lock.withLock { state.removed = [] }
+await store.refresh()
+let paused = store.timers.first { !$0.running }!
+state.lock.withLock { state.calls = [] }
+await store.start(WorkItem(projectId: paused.projectId!, projectName: "Has a paused timer", taskId: paused.taskId))
+check(state.lock.withLock { !state.calls.contains { $0.contains("POST") } && state.calls.contains { $0.contains("/resume.json") } },
+      "starting work that already has a paused timer resumes it instead of creating another")
 Keychain.failure = SignInError("Denied Keychain deletion")
 do { try store.signOut(); check(false, "logout reports Keychain denial") } catch {}
 check(store.isSignedIn, "failed credential deletion does not claim logout")
@@ -117,6 +132,7 @@ try await store.signIn(site: "complete.teamwork.com", token: "placeholder")
 await store.refresh()
 check(await store.log(first, seconds: 600, durationEdited: false, description: "", billable: false, markTaskComplete: false), "unchanged timer uses native completion")
 check(state.lock.withLock { state.posts.isEmpty && state.removed.contains(1) }, "native completion avoids direct timelog POST")
+check(store.toast?.message.hasPrefix("Logged 0:10 to ") == true, "a successful log confirms with a toast")
 try store.signOut()
 Keychain.failure = SignInError("Denied Keychain save")
 do { try await store.signIn(site: "denied.teamwork.com", token: "placeholder"); check(false, "sign-in reports Keychain save failure") } catch {}
@@ -157,6 +173,19 @@ await store.refresh()
 check(!store.timers.contains { $0.id == 1 } && state.lock.withLock { state.posts[101] == 1 },
       "a logged timer whose removal failed is removed by the next poll, without reposting")
 try store.signOut()
+
+// Targets: Teamwork's working hours from sign-in; a custom day applies at once and is remembered.
+let day = { (number: Int) in Calendar.current.dateInterval(of: .day, for: Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: number))!)! }
+try await store.signIn(site: "hours.teamwork.com", token: "placeholder")
+check(store.target(in: day(15)) == 27_000 && store.target(in: day(16)) == 21_600 && store.target(in: day(14)) == nil,
+      "Teamwork's working hours set each day's target")
+store.customDayLength = 27_000
+check(store.target(in: day(16)) == 27_000 && store.target(in: day(14)) == nil, "a custom day applies at once, on working days only")
+try store.signOut()
+check(store.target(in: day(16)) == 27_000 && store.target(in: day(17)) == nil, "the custom day outlives sign-out, Monday–Friday")
+check(Store(defaults: defaults, logDirectory: directory).customDayLength == 27_000, "the custom day is remembered")
+store.customDayLength = nil
+check(store.target(in: day(16)) == nil && defaults.object(forKey: "customDayLength") == nil, "no target signed out without a custom day")
 
 state.lock.withLock { state.mode = "pagination" }
 let client = TeamworkClient(credentials: Credentials(kind: .apiToken, site: URL(string: "https://page.teamwork.com/")!, secret: "placeholder"))

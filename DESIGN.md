@@ -1,6 +1,6 @@
-# Teamwork Timer — native rewrite
+# Stint for Teamwork — native rewrite
 
-A native SwiftUI time tracker for Teamwork.com, replacing the Electron *Teamwork Timer 2.6.2*.
+Stint is a native SwiftUI time tracker for Teamwork.com, replacing Teamwork's Electron *Teamwork Timer 2.6.2*. It was called Teamwork Timer until 0.1.0; the bundle ID (`com.doxigo.TeamworkTimer`), Keychain service and executable keep that name so sign-in and settings carry over.
 This file holds the reverse-engineering findings and the five design deliverables required before building
 (archetype, information architecture, command map, state + data model, accessibility plan).
 
@@ -284,7 +284,7 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 | Feature | Where | API |
 |---|---|---|
 | Edit a running/paused timer: move to another task, notes, billable; time kept | Timer row ⋯ › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only) |
-| Daily target | Popover footer ring "Today 5:40 of 8:00"; Today/Week bar and "x of y" per weekday | `lengthOfDay` from v3 `me` (Mon–Fri) |
+| Daily target | Popover footer ring "Today 5:40 of 8:00"; Today/Week bar and "x of y" per weekday | Working hours per weekday (v3 `workload.json` include), else `lengthOfDay` from v3 `me` (Mon–Fri); Settings › General can set your own day |
 | Due Today | Popover section between Pinned and Recent | `tasks.json?responsiblePartyIds&taskFilter=today` |
 | Task links | Paste into the search field, or drop on the popover/window to start | `GET /tasks/{id}.json` |
 | End-of-day reminder | Weekdays from 17:00, once, if timers are left; "Log All…" opens the window | local notification |
@@ -306,8 +306,8 @@ All of these are checked visually in the preview build. Task links and the worki
 ### Build and run
 ```sh
 ./check.sh                           # assert checks for the non-UI code (Checks/main.swift + fixtures)
-./bundle.sh                          # → build/Teamwork Timer.app (arm64, ad-hoc signed)
-open "build/Teamwork Timer.app"
+./bundle.sh                          # → /Applications/Stint.app (arm64, local signing identity)
+open /Applications/Stint.app
 ```
 - Both scripts pin the macOS 26 SDK: the CLT's macOS 27 SwiftUI needs Xcode's macro plugins.
 - **Signing:** `bundle.sh` signs with a self-signed "Teamwork Timer Local Signing" identity, created once in `.signing/` (its own keychain, git-ignored, not in the search list).

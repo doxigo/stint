@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/screenshots/hero.png" alt="Teamwork Timer: the main window and the menu bar popover" width="100%">
+  <img src="docs/screenshots/hero.png" alt="Stint: the main window and the menu bar popover" width="100%">
 </p>
 
-<h1 align="center">Teamwork Timer</h1>
+<h1 align="center">Stint for Teamwork</h1>
 
 <p align="center">
   A fast, native macOS menu bar timer for <a href="https://www.teamwork.com">Teamwork.com</a>.<br>
-  A SwiftUI rewrite of the old Electron Teamwork Timer, built for Apple silicon.
+  Built in SwiftUI for Apple silicon. An independent project, not made or endorsed by Teamwork.com.
 </p>
 
 <p align="center">
-  <a href="https://github.com/doxigo/teamwork-timer/actions/workflows/build.yml"><img src="https://github.com/doxigo/teamwork-timer/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/doxigo/stint/actions/workflows/build.yml"><img src="https://github.com/doxigo/stint/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <img src="https://img.shields.io/badge/macOS-26%2B-1D1C39" alt="macOS 26+">
   <img src="https://img.shields.io/badge/Swift-6-6438E0" alt="Swift 6">
 </p>
@@ -19,12 +19,12 @@
 
 ## Why
 
-The original Teamwork Timer is an Electron 4 app that runs under Rosetta and feels it. This one is a small native app that lives in the menu bar, uses Teamwork's own server timers (so a timer you start on the web shows up here, and the other way round), and keeps tracking down to a click or a keystroke.
+Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and feels it. Stint is a small native app that lives in the menu bar, uses Teamwork's own server timers (so a timer you start on the web shows up here, and the other way round), and keeps tracking down to a click or a keystroke.
 
 ## Features
 
 - **Menu bar first.** The running timer ticks in the menu bar as time, task and time, a compact badge, or just an icon.
-- **A popover for the whole day.** Today's timers and logged time, a week strip with daily totals, one-click Start and Pause, and your daily target from Teamwork.
+- **A popover for the whole day.** Today's timers and logged time, a week strip with daily totals, one-click Start and Pause, and your daily target from your Teamwork working hours (or your own, in Settings).
 - **Pinned tasks.** Pin the work you repeat and start it with ⌘1–⌘9.
 - **Starred projects, Due Today and Recent** at the top of every picker. Search any task or project, or paste a Teamwork task link.
 - **Log with care.** Edit the duration (`1:30`, `1.5h`, `90m`), round up or down to a step you choose, mark the task complete, or log every timer at once.
@@ -55,10 +55,10 @@ The original Teamwork Timer is an Electron 4 app that runs under Rosetta and fee
 
 ## Install
 
-1. Download `TeamworkTimer.dmg` from the latest [release](https://github.com/doxigo/teamwork-timer/releases) and open it.
-2. Drag **Teamwork Timer** onto the Applications folder, then open it from Applications.
+1. Download `Stint.dmg` from the latest [release](https://github.com/doxigo/stint/releases) and open it.
+2. Drag **Stint** onto the Applications folder, then open it from Applications.
 
-Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned pre-releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Teamwork Timer.app"`.
+Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned pre-releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
 
 Requires macOS 26 or later.
 
@@ -93,7 +93,7 @@ You need macOS 26 and either Xcode 26 or the Command Line Tools.
 
 ```bash
 ./check.sh    # models, OAuth validation, mocked session/logging/pagination, and release packaging checks
-./bundle.sh   # builds and signs "build/Teamwork Timer.app"
+./bundle.sh   # builds, signs and installs "/Applications/Stint.app"
 ```
 
 `bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an explicitly labelled unsigned pre-release.
@@ -110,9 +110,9 @@ For a signed local release, import your Developer ID Application identity, creat
 SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE="your-profile" ./bundle.sh
 ```
 
-The notarized disk image is `build/TeamworkTimer.dmg`. Local builds without these variables use the development signing identity and are not public release artifacts.
+The notarized disk image is `build/Stint.dmg`. Local builds without these variables use the development signing identity and are not public release artifacts.
 
-Account data is isolated by site and user. Old unscoped pins, recents, and adjustments remain unchanged in preferences as an unassigned backup; they are not automatically imported into an account. New pins are restored only for their own account.
+Account data is isolated by site and user. Pins, recents and idle adjustments saved before that are adopted once by the first account that signs in.
 
 If a logging response is lost, check Teamwork before retrying. The log form lets you confirm that the entry exists and remove the leftover timer, or confirm that no entry exists and allow a retry. Successful posts awaiting timer removal are recorded atomically on disk, so restarting the app does not post them again.
 

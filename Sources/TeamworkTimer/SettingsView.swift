@@ -8,6 +8,7 @@ struct GeneralSettings: View {
     @AppStorage("miniTimer") private var miniTimer = false
     @AppStorage("menuBarStyle") private var menuBarStyle = MenuBarStyle.time
     @AppStorage("menuBarSeconds") private var menuBarSeconds = false
+    @AppStorage("menuBarHighlight") private var menuBarHighlight = true
     @AppStorage("rounding") private var rounding = Rounding.off
     @AppStorage("roundingStep") private var roundingStep = 15
     @AppStorage("idleEnabled") private var idleEnabled = true
@@ -31,7 +32,7 @@ struct GeneralSettings: View {
                         }
                     }
                 if SMAppService.mainApp.status == .requiresApproval {
-                    Text("Allow Teamwork Timer in System Settings › General › Login Items.").foregroundStyle(.secondary)
+                    Text("Allow Stint in System Settings › General › Login Items.").foregroundStyle(.secondary)
                 }
                 if let loginError {
                     Label(loginError, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
@@ -43,6 +44,8 @@ struct GeneralSettings: View {
                 }
                 Toggle("Show seconds", isOn: $menuBarSeconds)
                     .disabled(menuBarStyle == .icon)
+                Toggle("Highlight badge while running", isOn: $menuBarHighlight)
+                    .disabled(menuBarStyle != .badge)
                 Toggle("Floating mini timer", isOn: $miniTimer)
                     .onChange(of: miniTimer) { _, shown in MiniTimer.setShown(shown, store: store) }
             } header: {
@@ -82,6 +85,23 @@ struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
             }
             Section {
+                Picker("Working day", selection: Binding(get: { store.customDayLength != nil },
+                                                         set: { store.customDayLength = $0 ? teamworkDays.max() ?? 8 * 3600 : nil })) {
+                    Text(teamworkDays.isEmpty ? "From Teamwork" : "From Teamwork (\(teamworkDaySummary))").tag(false)
+                    Text("Custom").tag(true)
+                }
+                if let custom = store.customDayLength {
+                    Stepper("\(custom.hoursMinutes) a day", value: Binding(get: { custom }, set: { store.customDayLength = $0 }),
+                            in: 900...86_400, step: 900)
+                        .monospacedDigit()
+                }
+            } header: {
+                Text("Targets")
+            } footer: {
+                Text("Sets the daily and weekly targets. Teamwork's come from your working hours in Edit My Details, or else your profile's day length.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 Toggle("Ask about idle time", isOn: $idleEnabled)
                 Stepper("After \(idleMinutes) minutes without activity", value: $idleMinutes, in: 1...120)
                     .disabled(!idleEnabled)
@@ -106,6 +126,17 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Teamwork's working-day lengths, one per working weekday.
+    private var teamworkDays: [TimeInterval] {
+        Array(workingDays(teamwork: store.teamworkHours, lengthOfDay: store.teamworkDayLength, custom: nil).values)
+    }
+
+    /// "7:30", or "6:00–7:30" when days differ.
+    private var teamworkDaySummary: String {
+        let (low, high) = (teamworkDays.min() ?? 0, teamworkDays.max() ?? 0)
+        return low == high ? high.hoursMinutes : "\(low.hoursMinutes)–\(high.hoursMinutes)"
     }
 }
 

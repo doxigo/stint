@@ -4,7 +4,6 @@ import SwiftUI
 /// the day's timers and logged entries with one Start button each, and a bottom bar.
 struct MenuBarView: View {
     @Environment(Store.self) private var store
-    @Environment(\.openWindow) private var openWindow
 
     enum Screen: Equatable {
         case day, newTimer, pinned, logAll, summary
@@ -13,6 +12,8 @@ struct MenuBarView: View {
 
     @State private var screen = Screen.day
     @State private var day = Calendar.current.startOfDay(for: .now)
+    /// Bumped on each open of the (reused) popover, to reload.
+    @State private var opens = 0
 
     private var calendar: Calendar { .current }
     private var week: DateInterval { calendar.dateInterval(of: .weekOfYear, for: day)! }
@@ -56,7 +57,13 @@ struct MenuBarView: View {
         .dropDestination(for: URL.self) { urls, _ in
             return startTask(from: urls)
         }
-        .task {
+        // The popover keeps its content between opens: each open starts on today and reloads.
+        .onReceive(NotificationCenter.default.publisher(for: StatusItem.willOpen)) { _ in
+            screen = .day
+            day = calendar.startOfDay(for: .now)
+            opens += 1
+        }
+        .task(id: opens) {
             await store.refresh()
             await store.loadStarred()
             await store.refreshToday()
@@ -74,9 +81,10 @@ struct MenuBarView: View {
     private var dayScreen: some View {
         VStack(spacing: 0) {
             header
-            WeekStrip(week: week, selected: $day, totals: dayTotals)
+            WeekStrip(week: week, selected: $day, totals: loggedTotals, liveToday: true)
             Divider()
-            dayList
+            // Just below the week strip, over the list: every confirmed write lands back on this screen.
+            dayList.overlay { ToastOverlay() }
             bottomBar
         }
         // Day navigation from the keyboard, as in Harvest.
@@ -94,25 +102,23 @@ struct MenuBarView: View {
                     .buttonStyle(.plain)
                     .font(.callout.weight(.medium))
                     .keyboardShortcut("t")
-            } else if let target = store.dayTarget {
-                Text("\((dayTotals[day] ?? 0).hoursMinutes) / \(target.hoursMinutes)")
+            } else if let target = store.target(in: calendar.dateInterval(of: .day, for: day)!) {
+                TodayTotal(logged: loggedTotals[day] ?? 0, target: target)
                     .font(.callout.weight(.medium))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.75))
-                    .accessibilityLabel("Today, \((dayTotals[day] ?? 0).spoken) of \(target.spoken)")
             }
         }
     }
 
-    /// Logged minutes per day plus today's timers (tracked but not yet logged).
-    private var dayTotals: [Date: TimeInterval] {
+    /// Logged minutes per day. Today's running timers are added by the views that show them
+    /// (`TodayTotal`, the strip's today cell): reading the clock here re-rendered the whole popover every second.
+    private var loggedTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
         for entry in weekEntries ?? [] {
             guard let logged = entry.timeLogged else { continue }
             totals[calendar.startOfDay(for: logged), default: 0] += TimeInterval(entry.minutes * 60)
         }
-        let today = calendar.startOfDay(for: .now)
-        for timer in store.timers { totals[today, default: 0] += store.elapsed(timer, at: store.menuBarNow) }
         return totals
     }
 
@@ -180,7 +186,7 @@ struct MenuBarView: View {
                 if let site = store.site { Link("Open Teamwork in Browser", destination: site) }
                 Button("Settings…", action: showSettings)
                 Divider()
-                Button("Quit Teamwork Timer") { NSApp.terminate(nil) }
+                Button("Quit Stint") { NSApp.terminate(nil) }
             } label: {
                 Label("Open Window", systemImage: "macwindow")
             } primaryAction: {
@@ -188,7 +194,7 @@ struct MenuBarView: View {
             }
             .menuStyle(.button)
             .fixedSize()
-            .help("Open the Teamwork Timer window (⌘0)")
+            .help("Open the Stint window (⌘0)")
         }
         .background {
             // ⌘, ⌘0 ⌘Q and ⌘1–⌘9 (pinned) keep working without visible buttons.
@@ -207,7 +213,7 @@ struct MenuBarView: View {
 
     private var signedOut: some View {
         VStack(spacing: 0) {
-            ScreenHeader("Teamwork Timer")
+            ScreenHeader("Stint")
             VStack(spacing: Space.s) {
                 Image(systemName: "person.crop.circle.badge.questionmark")
                     .font(.largeTitle)
@@ -248,7 +254,8 @@ struct MenuBarView: View {
 
     private func showWindow() {
         NSApp.activate()
-        openWindow(id: "main")
+        // The popover lives outside SwiftUI's scenes, so it opens the window through the store.
+        store.openMainWindow?()
     }
 
     /// A Teamwork task link dropped on the popover starts a timer on that task, as in the old app.
@@ -264,6 +271,8 @@ struct WeekStrip: View {
     let week: DateInterval
     @Binding var selected: Date
     let totals: [Date: TimeInterval]
+    /// Adds today's running timers on the store's clock (the popover passes logged totals only).
+    var liveToday = false
 
     var body: some View {
         let calendar = Calendar.current
@@ -274,29 +283,8 @@ struct WeekStrip: View {
                 .help("Previous day")
                 .accessibilityLabel("Previous day")
             ForEach(days, id: \.self) { day in
-                let isSelected = calendar.isDate(day, inSameDayAs: selected)
-                let isToday = calendar.isDateInToday(day)
-                let total = totals[calendar.startOfDay(for: day)] ?? 0
-                Button { selected = calendar.startOfDay(for: day) } label: {
-                    VStack(spacing: Space.xs) {
-                        Text(day.formatted(.dateTime.weekday(.abbreviated)).uppercased())
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Text(day.formatted(.dateTime.day()))
-                            .font(.body.weight(isSelected || isToday ? .semibold : .regular))
-                            .foregroundStyle(isSelected ? AnyShapeStyle(.white) : isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
-                            .frame(width: 34, height: 34)
-                            .background(isSelected ? Brand.purpleFill : .clear, in: .circle)
-                        Text(total.hoursMinutes)
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(.rect)
-                }
-                .accessibilityLabel("\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                DayCell(day: day, selected: $selected, logged: totals[calendar.startOfDay(for: day)] ?? 0,
+                        live: liveToday && calendar.isDateInToday(day))
             }
             Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48) }
                 .help("Next day")
@@ -309,6 +297,56 @@ struct WeekStrip: View {
 
     private func move(_ days: Int) {
         selected = Calendar.current.date(byAdding: .day, value: days, to: selected) ?? selected
+    }
+}
+
+/// One day of the strip. Only a live cell reads the store's clock, so a running timer re-renders it alone.
+private struct DayCell: View {
+    @Environment(Store.self) private var store
+    let day: Date
+    @Binding var selected: Date
+    let logged: TimeInterval
+    let live: Bool
+
+    var body: some View {
+        let calendar = Calendar.current
+        let isSelected = calendar.isDate(day, inSameDayAs: selected)
+        let isToday = calendar.isDateInToday(day)
+        let total = live ? logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) } : logged
+        Button { selected = calendar.startOfDay(for: day) } label: {
+            VStack(spacing: Space.xs) {
+                Text(day.formatted(.dateTime.weekday(.abbreviated)).uppercased())
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Text(day.formatted(.dateTime.day()))
+                    .font(.body.weight(isSelected || isToday ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.white) : isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
+                    .frame(width: 34, height: 34)
+                    .background(isSelected ? Brand.purpleFill : .clear, in: .circle)
+                Text(total.hoursMinutes)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(.rect)
+        }
+        .accessibilityLabel("\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Today's logged time plus running timers against the day target, on the store's clock.
+/// A leaf, so each second re-renders this text rather than the popover around it.
+struct TodayTotal: View {
+    @Environment(Store.self) private var store
+    let logged: TimeInterval
+    let target: TimeInterval
+
+    var body: some View {
+        let total = logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
+        Text("\(total.hoursMinutes) / \(target.hoursMinutes)")
+            .accessibilityLabel("Today, \(total.spoken) of \(target.spoken)")
     }
 }
 
@@ -432,14 +470,14 @@ struct TimeSummary: View {
         VStack(spacing: 0) {
             ScreenHeader("Time Summary", back: back)
             HStack(alignment: .top, spacing: 0) {
-                tile("Today", logged(in: today).map { $0 + tracked }, target: target(for: today))
+                tile("Today", logged(in: today).map { $0 + tracked }, target: store.target(in: today))
                 Divider()
-                tile("Yesterday", logged(in: yesterday), target: target(for: yesterday), past: true)
+                tile("Yesterday", logged(in: yesterday), target: store.target(in: yesterday), past: true)
             }
             .fixedSize(horizontal: false, vertical: true)
             Divider()
             HStack(alignment: .top, spacing: 0) {
-                tile("This week", logged(in: week).map { $0 + tracked }, target: target(for: week))
+                tile("This week", logged(in: week).map { $0 + tracked }, target: store.target(in: week))
                 Divider()
                 tile("This month", logged(in: month).map { $0 + tracked }, target: nil,
                      note: daysLogged(in: month).map { "Logged on \($0) day\($0 == 1 ? "" : "s")" })
@@ -494,13 +532,6 @@ struct TimeSummary: View {
         guard let value else { return "\(label), loading" }
         guard let target else { return "\(label), \(value.spoken)" }
         return "\(label), \(value.spoken) of \(target.spoken)"
-    }
-
-    /// Working-day target × weekdays in the interval; nil without a target or on a weekend.
-    private func target(for interval: DateInterval) -> TimeInterval? {
-        guard let day = store.dayTarget else { return nil }
-        let days = weekdays(in: interval)
-        return days > 0 ? day * Double(days) : nil
     }
 
     /// Logged seconds in an interval; nil until loaded.

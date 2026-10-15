@@ -9,88 +9,47 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
-/// Status item, the app's main timer display (as in Harvest): live time of the current timer,
-/// including one started on the web. Icon only when nothing is tracked.
-struct MenuBarLabel: View {
-    @Environment(Store.self) private var store
-    @Environment(\.openWindow) private var openWindow
-    @AppStorage("menuBarStyle") private var style = MenuBarStyle.time
-    @AppStorage("menuBarSeconds") private var showsSeconds = false
-
-    var body: some View {
-        content
-            // The label exists from launch, so it hands the store a way to open the main window
-            // (used by the end-of-day notification's "Log All…").
-            .onAppear { store.openMainWindow = { openWindow(id: "main") } }
-    }
-
-    @ViewBuilder private var content: some View {
-        if let timer = store.activeTimer {
-            if style == .icon {
-                Image(systemName: timer.running ? "play.fill" : "pause.fill")
-                    .accessibilityLabel(timer.running ? "Running" : "Paused")
-            } else {
-                // A status item shows one image and one text, so task and time go in a single string.
-                // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
-                let elapsed = store.elapsed(timer, at: store.menuBarNow)
-                let time = showsSeconds ? elapsed.clock : elapsed.hoursMinutes
-                if style == .badge {
-                    Image(nsImage: MenuBarBadge.image(running: timer.running, time: time))
-                        .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
-                } else {
-                    HStack(spacing: 4) {
-                        // Shape, not just colour, tells running from paused.
-                        Image(systemName: timer.running ? "play.fill" : "pause.fill")
-                        switch style {
-                        // Leading space: the status item ignores HStack spacing between its image and title.
-                        case .taskAndTime: Text(" \(Self.shortened(store.title(of: timer)))  \(time)").monospacedDigit()
-                        case .time: Text(" \(time)").monospacedDigit()
-                        case .icon, .badge: EmptyView()
-                        }
-                    }
-                }
-            }
-        } else {
-            Image(systemName: "timer")
-        }
-    }
-
-    /// Keeps the status item from crowding out other menu bar items.
-    static func shortened(_ title: String) -> String {
-        title.count > 24 ? title.prefix(23) + "…" : title
-    }
-}
-
-/// Harvest-style status item: a play/pause segment and the time in one rounded pill. Drawn as a
-/// template image (the label takes a single image), so the menu bar tints it for light and dark
-/// wallpapers and inverts it while the popover is open.
+/// Harvest-style badge: a play/pause segment and the time in one rounded pill. Drawn as a template
+/// image, so the menu bar tints it for light and dark wallpapers; while running it can fill with the
+/// brand colour instead, as Harvest's turns orange.
 @MainActor enum MenuBarBadge {
-    private static var cached: (running: Bool, time: String, image: NSImage)?
+    static let segment: CGFloat = 18
+    private static var cached: (running: Bool, highlighted: Bool, time: String, image: NSImage)?
 
-    static func image(running: Bool, time: String) -> NSImage {
-        if let cached, cached.running == running, cached.time == time { return cached.image }
+    static func image(running: Bool, highlighted: Bool, time: String) -> NSImage {
+        if let cached, cached.running == running, cached.highlighted == highlighted, cached.time == time {
+            return cached.image
+        }
+        let ink = highlighted ? NSColor.white : .black
         let text = NSAttributedString(string: time, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.black,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: ink,
         ])
         let glyph = NSImage(systemSymbolName: running ? "play.fill" : "pause.fill", accessibilityDescription: nil)!
-            .withSymbolConfiguration(.init(pointSize: 8, weight: .black))!
-        let height: CGFloat = 18, segment: CGFloat = 18, padding: CGFloat = 6
+            .withSymbolConfiguration(.init(pointSize: 8, weight: .black).applying(.init(paletteColors: [ink])))!
+        let height: CGFloat = 18, padding: CGFloat = 6
         let textSize = text.size()
         let size = NSSize(width: segment + padding + ceil(textSize.width) + padding, height: height)
         let image = NSImage(size: size, flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
             // Two tones, as in Harvest: the glyph segment a step stronger than the time segment.
-            NSColor.black.withAlphaComponent(0.32).setFill()
-            NSRect(x: 0, y: 0, width: segment, height: height).fill()
-            NSColor.black.withAlphaComponent(0.16).setFill()
-            NSRect(x: segment, y: 0, width: size.width - segment, height: height).fill()
+            if highlighted {
+                NSColor(Brand.purpleFill).setFill()
+                rect.fill()
+                NSColor.black.withAlphaComponent(0.2).setFill()
+                NSRect(x: 0, y: 0, width: segment, height: height).fill()
+            } else {
+                NSColor.black.withAlphaComponent(0.32).setFill()
+                NSRect(x: 0, y: 0, width: segment, height: height).fill()
+                NSColor.black.withAlphaComponent(0.16).setFill()
+                NSRect(x: segment, y: 0, width: size.width - segment, height: height).fill()
+            }
             glyph.draw(in: NSRect(x: (segment - glyph.size.width) / 2, y: (height - glyph.size.height) / 2,
                                   width: glyph.size.width, height: glyph.size.height))
             text.draw(at: NSPoint(x: segment + padding, y: (height - textSize.height) / 2))
             return true
         }
-        image.isTemplate = true
-        cached = (running, time, image)
+        image.isTemplate = !highlighted
+        cached = (running, highlighted, time, image)
         return image
     }
 }
@@ -296,6 +255,8 @@ struct ProjectRow: View {
 }
 
 /// A startable project/task. ⌘1–⌘9 start the first nine pins.
+/// In pickers (the popover) the whole row starts it; in the window's lists (`startButton`) a Start button
+/// does, like the popover's day rows, so a stray click or double-click never starts anything.
 struct WorkRow: View {
     @Environment(Store.self) private var store
     let item: WorkItem
@@ -304,34 +265,38 @@ struct WorkRow: View {
     var showsPin = true
     /// Off inside a project's own task list.
     var showsProject = true
+    var startButton = false
     let start: () -> Void
     @State private var hovering = false
 
     var body: some View {
         let pinned = store.isPinned(item)
-        Button(action: start) {
-            HStack(spacing: Space.s) {
-                VStack(alignment: .leading, spacing: Space.xxs / 2) {
-                    Text(item.title).lineLimit(2).multilineTextAlignment(.leading)
-                    if showsProject, let subtitle = item.subtitle {
-                        Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+        Group {
+            if startButton {
+                HStack(spacing: Space.s) {
+                    labels(pinned: pinned)
+                    startControl
+                }
+                .padding(.horizontal, Space.l)
+                .padding(.vertical, Space.s)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(.rect)
+            } else {
+                Button(action: start) {
+                    HStack(spacing: Space.s) {
+                        labels(pinned: pinned)
+                        // Quiet lists: the start affordance appears on hover; the whole row is the button.
+                        Image(systemName: "play.fill")
+                            .foregroundStyle(.tint)
+                            .opacity(hovering ? 1 : 0)
                     }
                 }
-                Spacer(minLength: Space.s)
-                if let shortcut {
-                    Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
-                } else if pinned && showsPin {
-                    Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
-                }
-                // Quiet lists: the start affordance appears on hover; the whole row is the button.
-                Image(systemName: "play.fill")
-                    .foregroundStyle(.tint)
-                    .opacity(hovering ? 1 : 0)
+                .buttonStyle(RowStyle())
+                .onHover { hovering = $0 }
+                .keyboardShortcut(shortcut.map { KeyboardShortcut(KeyEquivalent(Character(String($0))), modifiers: .command) })
+                .accessibilityHint("Starts a timer")
             }
         }
-        .buttonStyle(RowStyle())
-        .onHover { hovering = $0 }
-        .keyboardShortcut(shortcut.map { KeyboardShortcut(KeyEquivalent(Character(String($0))), modifiers: .command) })
         .contextMenu {
             Button("Start Timer", action: start)
             Button(pinned ? "Unpin" : "Pin") { store.togglePin(item) }
@@ -339,9 +304,40 @@ struct WorkRow: View {
                 Link("Open in Teamwork", destination: url)
             }
         }
+        .accessibilityElement(children: startButton ? .contain : .combine)
         .accessibilityLabel([item.title, item.subtitle, pinned ? "pinned" : nil].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityHint("Starts a timer")
         .accessibilityAction(named: pinned ? "Unpin" : "Pin") { store.togglePin(item) }
+    }
+
+    @ViewBuilder private func labels(pinned: Bool) -> some View {
+        VStack(alignment: .leading, spacing: Space.xxs / 2) {
+            Text(item.title).lineLimit(2).multilineTextAlignment(.leading)
+            if showsProject, let subtitle = item.subtitle {
+                Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        Spacer(minLength: Space.s)
+        if let shortcut {
+            Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+        } else if pinned && showsPin {
+            Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Start, or Resume / Running when this work already has a timer (Teamwork allows one per task).
+    @ViewBuilder private var startControl: some View {
+        let timer = store.timer(for: item)
+        if timer?.running == true {
+            HStack(spacing: Space.xs) {
+                LiveDot()
+                Text("Running").foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        } else {
+            Button(action: start) { Label(timer == nil ? "Start" : "Resume", systemImage: "clock") }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("\(timer == nil ? "Start" : "Resume") \(item.title)")
+        }
     }
 }
 
@@ -372,7 +368,6 @@ struct TimerRow: View {
         let title = store.title(of: timer)
         let project = store.subtitle(of: timer)
         let notes = timer.description.isEmpty || timer.description == title ? nil : timer.description
-        let elapsed = store.elapsed(timer, at: store.menuBarNow)
         return HStack(alignment: .top, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
@@ -384,11 +379,10 @@ struct TimerRow: View {
             VStack(alignment: .trailing, spacing: Space.xs) {
                 HStack(spacing: Space.s) {
                     if timer.running { LiveDot() }
-                    Text(elapsed.hoursMinutes)
+                    ElapsedText(timer: timer)
                         .font(.title3.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(timer.running ? .primary : .secondary)
-                        .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
                     startPause(title)
                 }
                 HStack(spacing: Space.m) {
@@ -465,5 +459,17 @@ struct RowStyle: ButtonStyle {
                 .background(Brand.purple.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
                 .onHover { hovering = $0 }
         }
+    }
+}
+
+/// A timer's h:mm on the store's clock. A leaf, so each second re-renders this text rather than its row.
+struct ElapsedText: View {
+    @Environment(Store.self) private var store
+    let timer: TWTimer
+
+    var body: some View {
+        let elapsed = store.elapsed(timer, at: store.menuBarNow)
+        Text(elapsed.hoursMinutes)
+            .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
     }
 }
