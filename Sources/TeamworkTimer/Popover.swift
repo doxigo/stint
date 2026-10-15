@@ -133,9 +133,14 @@ struct MenuBarView: View {
         let timers = isToday ? store.timers : []
         return ScrollView {
             VStack(spacing: 0) {
+                // Labelled as in the window's Today page: a paused timer and a logged entry otherwise look alike.
+                if !timers.isEmpty { SectionHeader("Timers") }
                 ForEach(timers) { timer in
                     TimerRow(timer: timer, onLog: { screen = .log(timer) }, onEdit: { screen = .edit(timer) })
                     RowDivider()
+                }
+                if !entries.isEmpty {
+                    SectionHeader("Logged", trailing: TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60).hoursMinutes)
                 }
                 ForEach(entries) { entry in
                     DayEntryRow(entry: entry) { screen = .editEntry(entry) }
@@ -410,7 +415,7 @@ struct DayEntryRow: View {
             WorkItem(projectId: $0, projectName: project, taskId: entry.taskId, taskName: task,
                      description: entry.description, billable: entry.billable)
         }
-        return HStack(alignment: .top, spacing: Space.m) {
+        return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 TitleLink(title: task ?? project, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
                 if task != nil { Text(project).foregroundStyle(.secondary).lineLimit(1) }
@@ -419,7 +424,7 @@ struct DayEntryRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: Space.s) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                 if entry.locked {
                     Image(systemName: "lock.fill").foregroundStyle(.secondary).accessibilityLabel("Locked")
                 }

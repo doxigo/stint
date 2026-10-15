@@ -283,7 +283,7 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 
 | Feature | Where | API |
 |---|---|---|
-| Edit a running/paused timer: move to another task, notes, billable; time kept | Timer row ⋯ › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only) |
+| Edit a running/paused timer: move to another task, notes, billable; time kept | Timer row Edit icon (on hover), or right-click › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only) |
 | Daily target | Popover footer ring "Today 5:40 of 8:00"; Today/Week bar and "x of y" per weekday | Working hours per weekday (v3 `workload.json` include), else `lengthOfDay` from v3 `me` (Mon–Fri); Settings › General can set your own day |
 | Due Today | Popover section between Pinned and Recent | `tasks.json?responsiblePartyIds&taskFilter=today` |
 | Task links | Paste into the search field, or drop on the popover/window to start | `GET /tasks/{id}.json` |

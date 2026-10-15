@@ -254,11 +254,12 @@ struct ProjectRow: View {
     }
 }
 
-/// A startable project/task. ⌘1–⌘9 start the first nine pins.
-/// In pickers (the popover) the whole row starts it; in the window's lists (`startButton`) a Start button
+/// A startable project/task. ⌘1–⌘9 start the first nine pins. The title opens it in Teamwork, as on the day rows.
+/// In pickers (the popover) the rest of the row starts it; in the window's lists (`startButton`) a Start button
 /// does, like the popover's day rows, so a stray click or double-click never starts anything.
 struct WorkRow: View {
     @Environment(Store.self) private var store
+    @Environment(\.openURL) private var openURL
     let item: WorkItem
     var shortcut: Int?
     /// Off inside the pinned list itself, where every row is pinned.
@@ -271,57 +272,72 @@ struct WorkRow: View {
 
     var body: some View {
         let pinned = store.isPinned(item)
+        let url = store.webURL(projectId: item.projectId, taskId: item.taskId)
         Group {
             if startButton {
                 HStack(spacing: Space.s) {
-                    labels(pinned: pinned)
+                    labels(pinned: pinned, url: url)
                     startControl
                 }
                 .padding(.horizontal, Space.l)
                 .padding(.vertical, Space.s)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(.rect)
+                .accessibilityElement(children: .contain)
             } else {
-                Button(action: start) {
-                    HStack(spacing: Space.s) {
-                        labels(pinned: pinned)
-                        // Quiet lists: the start affordance appears on hover; the whole row is the button.
-                        Image(systemName: "play.fill")
-                            .foregroundStyle(.tint)
-                            .opacity(hovering ? 1 : 0)
-                    }
+                HStack(spacing: Space.s) {
+                    labels(pinned: pinned, url: url)
+                    // Quiet lists: the start affordance appears on hover.
+                    Image(systemName: "play.fill")
+                        .foregroundStyle(.tint)
+                        .opacity(hovering ? 1 : 0)
+                        .allowsHitTesting(false)
                 }
-                .buttonStyle(RowStyle())
-                .onHover { hovering = $0 }
-                .keyboardShortcut(shortcut.map { KeyboardShortcut(KeyEquivalent(Character(String($0))), modifiers: .command) })
+                .padding(.horizontal, Space.l)
+                .padding(.vertical, Space.s)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                // The start button sits behind the row rather than around it, so the title link isn't nested in
+                // a button. Everything but the link lets clicks through to it.
+                .background {
+                    Button(action: start) { Color.clear }
+                        .buttonStyle(RowStyle())
+                        .onHover { hovering = $0 }
+                        .keyboardShortcut(shortcut.map { KeyboardShortcut(KeyEquivalent(Character(String($0))), modifiers: .command) })
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityHint("Starts a timer")
+                .accessibilityAction { start() }
+                .accessibilityActions {
+                    if let url { Button("Open in Teamwork") { openURL(url) } }
+                }
             }
         }
         .contextMenu {
             Button("Start Timer", action: start)
             Button(pinned ? "Unpin" : "Pin") { store.togglePin(item) }
-            if let url = store.webURL(projectId: item.projectId, taskId: item.taskId) {
-                Link("Open in Teamwork", destination: url)
-            }
+            if let url { Link("Open in Teamwork", destination: url) }
         }
-        .accessibilityElement(children: startButton ? .contain : .combine)
         .accessibilityLabel([item.title, item.subtitle, pinned ? "pinned" : nil].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAction(named: pinned ? "Unpin" : "Pin") { store.togglePin(item) }
     }
 
-    @ViewBuilder private func labels(pinned: Bool) -> some View {
+    @ViewBuilder private func labels(pinned: Bool, url: URL?) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs / 2) {
-            Text(item.title).lineLimit(2).multilineTextAlignment(.leading)
+            TitleLink(title: item.title, url: url).allowsHitTesting(url != nil)
             if showsProject, let subtitle = item.subtitle {
-                Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1).allowsHitTesting(false)
             }
         }
         Spacer(minLength: Space.s)
-        if let shortcut {
-            Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
-        } else if pinned && showsPin {
-            Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+        Group {
+            if let shortcut {
+                Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+            } else if pinned && showsPin {
+                Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+            }
         }
+        .allowsHitTesting(false)
     }
 
     /// Start, or Resume / Running when this work already has a timer (Teamwork allows one per task).
@@ -342,7 +358,7 @@ struct WorkRow: View {
 }
 
 /// Harvest-style timer row: task (up to two lines), project and notes; time and one Start/Pause button.
-/// Log and ⋯ appear on hover; every action is also in the context menu and VoiceOver actions.
+/// Edit and Log icons appear under it on hover; every action is also in the context menu and VoiceOver actions.
 struct TimerRow: View {
     @Environment(Store.self) private var store
     let timer: TWTimer
@@ -368,7 +384,7 @@ struct TimerRow: View {
         let title = store.title(of: timer)
         let project = store.subtitle(of: timer)
         let notes = timer.description.isEmpty || timer.description == title ? nil : timer.description
-        return HStack(alignment: .top, spacing: Space.m) {
+        return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
                 if let project { Text(project).foregroundStyle(.secondary).lineLimit(1) }
@@ -376,22 +392,34 @@ struct TimerRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: Space.xs) {
-                HStack(spacing: Space.s) {
-                    if timer.running { LiveDot() }
-                    ElapsedText(timer: timer)
-                        .font(.title3.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(timer.running ? .primary : .secondary)
+            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                if timer.running { LiveDot() }
+                ElapsedText(timer: timer)
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(timer.running ? .primary : .secondary)
+                // One column as wide as Start/Pause, so Edit and Log split exactly its width.
+                VStack(spacing: Space.xs) {
                     startPause(title)
+                    HStack(spacing: Space.xxs) {
+                        if let onEdit {
+                            Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
+                                .help("Edit task or notes")
+                                .accessibilityLabel("Edit \(title)")
+                        }
+                        Button(action: onLog) { Label("Log", systemImage: "clock.badge.checkmark") }
+                            .help("Stop and log time")
+                            .accessibilityLabel("Log \(title)")
+                    }
+                    .buttonStyle(RowIconStyle())
+                    // Space kept while hidden, so rows don't jump. Hidden also means out of the click and Tab
+                    // order; VoiceOver reaches both through the row's actions.
+                    .opacity(hovering ? 1 : 0)
+                    .disabled(!hovering)
+                    .accessibilityHidden(!hovering)
+                    .animation(.easeOut(duration: 0.15), value: hovering)
                 }
-                HStack(spacing: Space.m) {
-                    Button("Log…", action: onLog).help("Stop and log time")
-                    actionsMenu
-                }
-                .buttonStyle(.borderless)
-                .font(.callout)
-                .opacity(hovering ? 1 : 0)
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.m)
@@ -405,28 +433,38 @@ struct TimerRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Log") { onLog() }
+        // The context menu alone isn't reliably reachable with VoiceOver.
+        .accessibilityActions {
+            if let onEdit { Button("Edit Task or Notes", action: onEdit) }
+            if let item = store.workItem(for: timer) {
+                Button(store.isPinned(item) ? "Unpin" : "Pin") { store.togglePin(item) }
+            }
+            Button("Discard Timer") { confirmingDiscard = true }
+        }
     }
 
     /// The row's one primary control. Text plus a filled/bordered style, so state isn't colour alone.
     @ViewBuilder private func startPause(_ title: String) -> some View {
         if timer.running {
-            Button { Task { await store.toggle(timer) } } label: { Label("Pause", systemImage: "pause.fill") }
+            Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Pause", systemImage: "pause.fill")) }
                 .buttonStyle(.borderedProminent)
                 .tint(Brand.purpleFill)
                 .accessibilityLabel("Pause \(title)")
         } else {
-            Button { Task { await store.toggle(timer) } } label: { Label("Start", systemImage: "clock") }
+            Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Start", systemImage: "clock")) }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Start \(title)")
         }
     }
 
-    private var actionsMenu: some View {
-        Menu { menuItems } label: { Image(systemName: "ellipsis") }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel("More actions")
+    /// Sized for the wider of Start and Pause, so the column keeps its width when the timer toggles.
+    private func startPauseLabel(_ label: some View) -> some View {
+        ZStack {
+            Label("Start", systemImage: "clock").hidden()
+            Label("Pause", systemImage: "pause.fill").hidden()
+            label
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var menuItems: some View {
@@ -458,6 +496,32 @@ struct RowStyle: ButtonStyle {
                 .contentShape(.rect)
                 .background(Brand.purple.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
                 .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// A timer row's secondary icons: quiet grey at rest, brand purple under the pointer, deeper when pressed.
+/// Each fills its share of the row, so a pair spans the Start/Pause button above it.
+struct RowIconStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Icon(configuration: configuration) }
+
+    private struct Icon: View {
+        let configuration: Configuration
+        @State private var hovering = false
+
+        var body: some View {
+            let active = hovering || configuration.isPressed
+            configuration.label
+                .labelStyle(.iconOnly)
+                .font(.body.weight(.medium))
+                .foregroundStyle(active ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+                .frame(maxWidth: .infinity, minHeight: 22)
+                .background(active ? AnyShapeStyle(Brand.purple.opacity(configuration.isPressed ? 0.2 : 0.12))
+                                   : AnyShapeStyle(.quaternary.opacity(0.6)),
+                            in: .rect(cornerRadius: 7, style: .continuous))
+                .contentShape(.rect)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
         }
     }
 }

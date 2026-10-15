@@ -280,6 +280,7 @@ struct EntriesView: View {
     @State private var anchor = Calendar.current.startOfDay(for: .now)
     @State private var sheet: TimerSheet?
     @State private var editingEntry: TimeEntry?
+    @State private var position = ScrollPosition(idType: Date.self)
 
     private var calendar: Calendar { .current }
     private var interval: DateInterval { calendar.dateInterval(of: span, for: anchor)! }
@@ -291,6 +292,8 @@ struct EntriesView: View {
     private var total: TimeInterval { TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60) }
     /// Working hours in view; nil on days off.
     private var target: TimeInterval? { store.target(in: interval) }
+    /// No entries and, in the current period, no timers either.
+    private var isEmpty: Bool { entries.isEmpty && !(isCurrent && !store.timers.isEmpty) }
 
     private var days: [(day: Date, entries: [TimeEntry])] {
         Dictionary(grouping: entries) { calendar.startOfDay(for: $0.timeLogged ?? interval.start) }
@@ -311,7 +314,13 @@ struct EntriesView: View {
 
     var body: some View {
         Page {
-            if let target { // the numbers are in the subtitle
+            if span == .weekOfYear {
+                if weekEntries != nil && !isEmpty {
+                    WeekChart(week: interval, entries: entries) { day in
+                        withAnimation { position.scrollTo(id: day, anchor: .top) }
+                    }
+                }
+            } else if let target { // the numbers are in the subtitle
                 ProgressView(value: min(total / target, 1))
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.m)
@@ -335,6 +344,7 @@ struct EntriesView: View {
                 }
             }
         }
+        .scrollPosition($position) // the week chart scrolls to a clicked day
         .safeAreaInset(edge: .top, spacing: 0) {
             if span == .day {
                 VStack(spacing: 0) {
@@ -352,7 +362,7 @@ struct EntriesView: View {
         .overlay {
             if weekEntries == nil {
                 ProgressView().controlSize(.small)
-            } else if entries.isEmpty && !(isCurrent && !store.timers.isEmpty) {
+            } else if isEmpty {
                 ContentUnavailableView("Nothing Logged", systemImage: "clock", description: Text("Time you log shows up here."))
             }
         }
