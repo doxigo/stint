@@ -41,7 +41,7 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No Developer ID secrets: publishing an unsigned pre-release."
+            echo "::warning::No Developer ID secrets: publishing an unsigned release."
           fi
       - name: Prepare signing
         if: steps.mode.outputs.signed == 'true'
@@ -83,7 +83,7 @@ jobs:
       - name: Sign and notarize
         if: steps.mode.outputs.signed == 'true'
         run: ./bundle.sh
-      - name: Build unsigned pre-release
+      - name: Build unsigned release
         if: steps.mode.outputs.signed != 'true'
         run: UNSIGNED_RELEASE=1 ./bundle.sh
       - name: Release
@@ -95,7 +95,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" build/Stint.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
           else
             gh release create "$GITHUB_REF_NAME" build/Stint.dmg --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
-              --prerelease --notes-file .github/unsigned-release.md
+              --notes-file .github/unsigned-release.md
           fi
       - name: Clean signing credentials
         if: always()

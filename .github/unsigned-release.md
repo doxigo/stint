@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Unsigned pre-release.** This build isn't signed with a Developer ID or notarized by Apple, so macOS blocks its first launch.
+> **Unsigned build.** This build isn't signed with a Developer ID or notarized by Apple, so macOS blocks its first launch.
 
 **Install**
 

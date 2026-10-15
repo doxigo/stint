@@ -57,7 +57,7 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     echo "$archive"
     exit 0
 fi
-# Explicit opt-in only (UNSIGNED_RELEASE=1): an ad-hoc signed, un-notarized archive for a pre-release, used
+# Explicit opt-in only (UNSIGNED_RELEASE=1): an ad-hoc signed, un-notarized archive for a release, used
 # until Developer ID secrets exist. Gatekeeper blocks its first launch; the release notes say how to open it.
 if [ -n "${UNSIGNED_RELEASE:-}" ]; then
     codesign --force --sign - "$app"

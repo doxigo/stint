@@ -58,7 +58,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 1. Download `Stint.dmg` from the latest [release](https://github.com/doxigo/stint/releases) and open it.
 2. Drag **Stint** onto the Applications folder, then open it from Applications.
 
-Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned pre-releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
+Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned releases**: macOS blocks the first launch, so right-click the app and choose **Open**, or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
 
 Requires macOS 26 or later.
 
@@ -96,7 +96,7 @@ You need macOS 26 and either Xcode 26 or the Command Line Tools.
 ./bundle.sh   # builds, signs and installs "/Applications/Stint.app"
 ```
 
-`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an explicitly labelled unsigned pre-release.
+`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an unsigned release whose notes say how to open it.
 
 For public releases, configure these GitHub Actions secrets:
 
