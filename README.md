@@ -38,16 +38,16 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/popover-light.png" alt="Popover in Light Mode"></td>
-    <td width="50%"><img src="docs/screenshots/popover-dark.png" alt="Popover in Dark Mode"></td>
+    <td width="50%"><img src="docs/screenshots/popover-light.png" alt="Popover in Light Mode, with today's total against the daily target and a timer's Edit and Log buttons on hover"></td>
+    <td width="50%"><img src="docs/screenshots/popover-dark.png" alt="Popover in Dark Mode, with a confirmation after logging time"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/today.png" alt="Today in the main window"></td>
-    <td><img src="docs/screenshots/week-dark.png" alt="This Week in Dark Mode"></td>
+    <td><img src="docs/screenshots/week-dark.png" alt="This Week in Dark Mode, with a chart of logged time per day against the target"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/settings.png" alt="Settings"></td>
-    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="Time badge in the menu bar" width="200"><br><sub>The <b>Time badge</b> menu bar style</sub></td>
+    <td><img src="docs/screenshots/settings.png" alt="Settings: menu bar style, keyboard shortcut, rounding and working-day target"></td>
+    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="Time badge in the menu bar while a timer runs" width="200"><br><sub>The <b>Time badge</b> menu bar style while a timer runs</sub></td>
   </tr>
 </table>
 
