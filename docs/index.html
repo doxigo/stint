@@ -6,7 +6,7 @@
 <title>Stint: a native Mac menu bar timer for Teamwork.com</title>
 <meta name="description" content="Stint keeps your Teamwork.com timers in the macOS menu bar. Start, pause and log time in a click, in sync with Teamwork on the web. Free, native, for Apple silicon.">
 <link rel="canonical" href="https://doxigo.github.io/stint/">
-<meta name="theme-color" content="#1d1c39">
+<meta name="theme-color" content="#13122e">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Stint for Teamwork.com">
 <meta property="og:description" content="A native macOS menu bar timer for Teamwork.com. Start, pause and log time in a click.">
@@ -17,127 +17,241 @@
 <link rel="apple-touch-icon" href="assets/icon.png">
 <link rel="preload" href="assets/work-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/site.css">
+<script>document.documentElement.classList.add("js")</script>
+<script src="assets/demo.js" defer></script>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.86l12-7.2a1 1 0 0 0 0-1.72l-12-7.2A1 1 0 0 0 7 4.8Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16" rx="1.2"/><rect x="14" y="4" width="5" height="16" rx="1.2"/></symbol>
+  <symbol id="i-start" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l-3 2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 3.5h6M10 3.5v6l-3 4h10l-3-4v-6M12 13.5V21"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 10.5V18m-2 0h4m-4-7.5h2"/><circle cx="12" cy="6.5" r=".6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M6.5 8.5h.01M9 8.5h.01"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.5 8.5 0 0 1 12 0M9 16.5a4 4 0 0 1 6 0"/><circle cx="12" cy="19.5" r=".7"/></symbol>
+  <symbol id="i-toggles" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="6.5" rx="3.25"/><rect x="3" y="13" width="18" height="6.5" rx="3.25"/><circle cx="15.5" cy="7.75" r="1.6"/><circle cx="8.5" cy="16.25" r="1.6"/></symbol>
+  <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M6 3.5 18.5 13l-5.6.9 3.3 6.3-2.4 1.2-3.3-6.3L6 19Z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.5a4 4 0 0 0 .4-8 6 6 0 0 0-11.5-1A4.5 4.5 0 0 0 7 18.5Z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5Z"/></symbol>
+</svg>
+
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap bar">
-    <a class="brand" href="./"><img src="assets/icon.png" alt="" width="32" height="32">Stint</a>
+    <a class="brand" href="./"><img src="assets/icon.png" alt="" width="30" height="30">Stint</a>
     <nav aria-label="Site">
       <a href="help/">Help</a>
       <a href="privacy/">Privacy</a>
       <a href="terms/">Terms</a>
       <a href="https://github.com/doxigo/stint">GitHub</a>
     </nav>
+    <a class="button light get-pill" href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Download</a>
   </div>
 </header>
 
 <main id="main">
-  <div class="hero">
+  <section class="hero" aria-labelledby="hero-title">
     <div class="wrap">
-      <h1>Your Teamwork timers, one click away<span class="dot">.</span></h1>
-      <p class="lede">Stint is a small, native Mac app that keeps Teamwork.com time tracking in your menu bar. Start, pause and log time without opening a browser tab, while your timers stay in sync with Teamwork on the web.</p>
-      <div class="actions">
-        <a class="button primary" href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg">Download for Mac</a>
-        <a class="button ghost" href="help/">Read the help</a>
+      <h1 id="hero-title" class="rise">Your Teamwork timers, one click away<span class="dot">.</span></h1>
+      <div class="hero-row rise">
+        <p class="lede">Stint is a small, native Mac app that keeps Teamwork.com time tracking in your menu bar. Start, pause and log time without opening a browser tab, while your timers stay in sync with Teamwork on the web.</p>
+        <div class="cta">
+          <a class="button light big" href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Download for Mac</a>
+          <p class="meta">Free · macOS 26 or later · Apple silicon</p>
+          <p class="meta">An independent project, not made or endorsed by Teamwork.com.</p>
+        </div>
       </div>
-      <p class="meta">Free · macOS 26 or later · Apple silicon</p>
-      <p class="meta">An independent project, not made or endorsed by Teamwork.com.</p>
-      <figure class="hero-shot">
-        <img src="assets/hero.webp" width="2000" height="1214" fetchpriority="high"
-             alt="Stint's main window showing today's timers and logged time, with the menu bar popover open in Dark Mode and a timer running">
-      </figure>
+
+      <div class="stage rise" data-demo role="group" aria-label="Live demo of Stint with sample data">
+        <div class="menubar" aria-hidden="true"></div>
+        <div class="mb-item">
+          <button class="badge" type="button" aria-expanded="true" aria-controls="demo-pop" aria-label="Stint, running, 38 minutes. Show or hide the popover." data-badge>
+            <span class="seg"><svg class="i" aria-hidden="true"><use href="#i-pause" data-badge-glyph/></svg></span><span class="time" data-badge-time>0:38:12</span>
+          </button>
+        </div>
+        <div class="mb-tail" aria-hidden="true">
+          <svg class="i wide"><use href="#i-wifi"/></svg>
+          <svg class="i"><use href="#i-toggles"/></svg>
+          <span class="wide">Thu 15 Oct</span><span data-clock>14:32</span>
+        </div>
+
+        <p class="demo-hint"><b>Try it.</b>This popover is live, with sample data. Pause the timer or start another, and watch the menu bar.</p>
+
+        <img class="stage-window" src="assets/window-week.webp" width="1860" height="1287" fetchpriority="high"
+             alt="Stint's main window in Dark Mode on This Week, with a bar chart of logged time per day against the target">
+
+        <div class="pop" id="demo-pop" data-pop>
+          <div class="pop-head"><b>Today: Thursday, 15 Oct<span class="dot">.</span></b><span><span data-total>2:03</span> / 7:30</span></div>
+          <ol class="pop-week" aria-label="This week's logged time">
+            <li class="chev" aria-hidden="true"><svg class="i"><use href="#i-left"/></svg></li>
+            <li><small>MON</small><b>12</b><span>7:45</span></li>
+            <li><small>TUE</small><b>13</b><span>6:50</span></li>
+            <li><small>WED</small><b>14</b><span>7:35</span></li>
+            <li class="is-today" aria-current="date"><small>THU</small><b>15</b><span data-total>2:03</span></li>
+            <li><small>FRI</small><b>16</b><span>0:00</span></li>
+            <li><small>SAT</small><b>17</b><span>0:00</span></li>
+            <li><small>SUN</small><b>18</b><span>0:00</span></li>
+            <li class="chev" aria-hidden="true"><svg class="i"><use href="#i-right"/></svg></li>
+          </ol>
+          <div class="pop-sec"><span>Timers</span></div>
+          <ul class="pop-list" data-timers>
+            <li class="row is-running" data-seconds="2292" data-task="Fix navigation on mobile">
+              <div class="row-text"><b>Fix navigation on mobile</b><span>Website Redesign</span><span>Hamburger menu overlaps the logo</span></div>
+              <span class="row-time">0:38</span>
+              <button class="row-btn" type="button"><svg class="i fill" aria-hidden="true"><use href="#i-pause"/></svg><span>Pause</span></button>
+            </li>
+            <li class="row is-paused" data-seconds="1500" data-task="Homepage hero copy review">
+              <div class="row-text"><b>Homepage hero copy review</b><span>Brand Refresh</span><span>Second pass with marketing</span></div>
+              <span class="row-time">0:25</span>
+              <button class="row-btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-start"/></svg><span>Start</span></button>
+            </li>
+          </ul>
+          <div class="pop-sec"><span>Logged</span><span>1:00</span></div>
+          <ul class="pop-list">
+            <li class="row" data-seconds="900" data-task="Daily standup" data-logged>
+              <div class="row-text"><b>Daily standup</b><span>Internal</span></div>
+              <span class="row-time">0:15</span>
+              <button class="row-btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-start"/></svg><span>Start</span></button>
+            </li>
+            <li class="row" data-seconds="2700" data-task="Client meetings &amp; support" data-logged>
+              <div class="row-text"><b>Client meetings &amp; support</b><span>Northwind Support</span><span>Weekly sync with the client</span></div>
+              <span class="row-time">0:45</span>
+              <button class="row-btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-start"/></svg><span>Start</span></button>
+            </li>
+          </ul>
+          <div class="pop-foot" aria-hidden="true">
+            <span><svg class="i"><use href="#i-plus"/></svg></span>
+            <span><svg class="i"><use href="#i-pin"/></svg></span>
+            <span><svg class="i"><use href="#i-info"/></svg></span>
+            <span><svg class="i"><use href="#i-check"/></svg>Log All</span>
+            <span><svg class="i"><use href="#i-window"/></svg>Open Window <svg class="i"><use href="#i-down"/></svg></span>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <section>
+  <section class="section" aria-labelledby="features-title">
     <div class="wrap">
-      <div class="intro">
-        <h2>Time tracking that stays out of your way</h2>
+      <div class="section-head">
+        <h2 id="features-title">Time tracking that stays out of your way</h2>
         <p>Logging time is easiest when it takes a second. Stint puts Teamwork's own timers in the macOS menu bar, so starting the next task, pausing for lunch or logging the day is a click or a keystroke away.</p>
-        <p>There's no separate service in between: a timer you start on the web shows up in Stint, and one you start in Stint shows up on the web. Your time lands in Teamwork, where your team and your reports already are.</p>
       </div>
 
-      <div class="feature">
-        <div>
-          <h2>Your whole day in the menu bar</h2>
+      <div class="bento">
+        <article class="panel span-5">
+          <h3>Your whole day in the menu bar</h3>
           <p>Click the timer in the menu bar to see today at a glance.</p>
-          <ul>
+          <ul class="checks">
             <li>Running and paused timers, each with Start, Pause, Edit and Log</li>
             <li>The time you've logged today, against your working-day target</li>
-            <li>A week strip with each day's total. Press ← and → to move between days.</li>
+            <li>A week strip with each day's total. Press <kbd>←</kbd> and <kbd>→</kbd> to move between days.</li>
             <li>Log All sends every timer to Teamwork in one go</li>
           </ul>
-        </div>
-        <div class="pair">
-          <figure class="shot"><img src="screenshots/popover-light.png" width="1000" height="1349" loading="lazy" alt="The popover in Light Mode: today's total against the daily target, a week strip, two timers and two logged entries"></figure>
-          <figure class="shot"><img src="screenshots/popover-dark.png" width="1000" height="1349" loading="lazy" alt="The popover in Dark Mode, confirming that time was logged"></figure>
-        </div>
-      </div>
+          <div class="pop mini" aria-hidden="true">
+            <div class="toast-wrap"><p class="toast"><svg class="i"><use href="#i-check"/></svg>Logged 0:15 to Daily standup</p></div>
+            <div class="pop-sec"><span>Logged</span><span>1:00</span></div>
+            <ul class="pop-list">
+              <li class="row"><div class="row-text"><b>Daily standup</b><span>Internal</span></div><span class="row-time">0:15</span><span class="row-btn"><svg class="i"><use href="#i-start"/></svg><span>Start</span></span></li>
+              <li class="row"><div class="row-text"><b>Client meetings &amp; support</b><span>Northwind Support</span></div><span class="row-time">0:45</span><span class="row-btn"><svg class="i"><use href="#i-start"/></svg><span>Start</span></span></li>
+            </ul>
+            <div class="pop-foot">
+              <span><svg class="i"><use href="#i-plus"/></svg></span>
+              <span><svg class="i"><use href="#i-pin"/></svg></span>
+              <span><svg class="i"><use href="#i-info"/></svg></span>
+              <span><svg class="i"><use href="#i-check"/></svg>Log All</span>
+              <span><svg class="i"><use href="#i-window"/></svg>Open Window <svg class="i"><use href="#i-down"/></svg></span>
+            </div>
+          </div>
+        </article>
 
-      <div class="feature flip">
-        <div>
-          <h2>A window for the bigger picture</h2>
+        <article class="panel span-7">
+          <h3>A window for the bigger picture</h3>
           <p>Open the main window for Timers, Today, This Week, Pinned, Starred Projects and My Tasks. Edit a timer's task, notes or tracked time, and fix or delete logged entries, all in one place.</p>
-        </div>
-        <figure class="shot"><img src="screenshots/today.png" width="2000" height="1384" loading="lazy" alt="The Today page in the main window, listing timers and the day's logged entries"></figure>
-      </div>
-
-      <div class="feature">
-        <div>
-          <h2>See the week take shape</h2>
           <p>This Week charts the time you've logged each day against your target. Click a day to jump to its entries. Your target comes from your working hours in Teamwork, or set your own.</p>
-        </div>
-        <figure class="shot"><img src="screenshots/week-dark.png" width="2000" height="1384" loading="lazy" alt="This Week in Dark Mode, with a bar chart of logged time per day against the target"></figure>
-      </div>
+          <div class="shot-bleed top"><img src="assets/window-today.webp" width="1640" height="1135" loading="lazy" alt="The Today page in the main window, listing timers and the day's logged entries"></div>
+        </article>
 
-      <div class="feature flip">
-        <div>
-          <h2>Make it yours</h2>
+        <article class="panel span-7 tall">
+          <h3>Make it yours</h3>
           <p>Choose how the timer looks in the menu bar: time, task and time, a compact badge, or just an icon. Set a shortcut that starts and pauses from any app, round durations when you log, and pick when Stint should remind you.</p>
-          <figure class="shot narrow"><img src="screenshots/menubar-badge.png" width="400" height="132" loading="lazy" alt="The Time badge menu bar style while a timer runs"></figure>
-        </div>
-        <figure class="shot"><img src="screenshots/settings.png" width="2000" height="1384" loading="lazy" alt="Settings: menu bar style, keyboard shortcut, rounding and working-day target"></figure>
+          <ul class="styles art" aria-label="Menu bar styles while a timer runs">
+            <li><span class="mb"><svg class="i fill" aria-hidden="true"><use href="#i-pause"/></svg>Fix navigation on mobile&nbsp;&nbsp;0:38</span><small>Task and time</small></li>
+            <li><span class="mb"><svg class="i fill" aria-hidden="true"><use href="#i-pause"/></svg>0:38</span><small>Time</small></li>
+            <li><span class="badge"><span class="seg"><svg class="i" aria-hidden="true"><use href="#i-pause"/></svg></span><span class="time">0:38</span></span><small>Time badge</small></li>
+            <li><span class="badge"><span class="seg"><svg class="i" aria-hidden="true"><use href="#i-pause"/></svg></span></span><small>Icon only</small></li>
+          </ul>
+          <div class="shot-bleed top"><img src="assets/window-settings.webp" width="1400" height="969" loading="lazy" alt="Settings: menu bar style, keyboard shortcut, rounding and working-day target"></div>
+        </article>
+
+        <article class="panel span-5">
+          <h3>Log with care</h3>
+          <p>Type durations the way you think of them, round to a step you choose, mark the task complete and set billable time.</p>
+          <ul class="durations art" aria-label="Duration formats">
+            <li><code>1:30</code><span>1 hour 30 minutes</span></li>
+            <li><code>1.5h</code><span>1 hour 30 minutes</span></li>
+            <li><code>90m</code><span>1 hour 30 minutes</span></li>
+            <li><code>:45</code><span>45 minutes</span></li>
+            <li><code>530</code><span>5 hours 30 minutes</span></li>
+          </ul>
+        </article>
+
+        <article class="panel span-5">
+          <h3>Pinned tasks</h3>
+          <p>Pin the work you repeat and start it from the popover with <kbd>⌘1</kbd> to <kbd>⌘9</kbd>.</p>
+          <ul class="pins art" aria-label="Pinned tasks, sample data">
+            <li><span>Daily standup <small>Internal</small></span><kbd>⌘1</kbd></li>
+            <li><span>Code review <small>Website Redesign</small></span><kbd>⌘2</kbd></li>
+            <li><span>Client meetings &amp; support <small>Northwind Support</small></span><kbd>⌘3</kbd></li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="extras">
+        <div><h3>Find any task</h3><p>Starred projects, tasks due today and recent work come first. Search everything else, or paste a Teamwork task link.</p></div>
+        <div><h3>Edit as you go</h3><p>Move a running timer to another task, change its notes or tracked time, and edit logged entries later.</p></div>
+        <div><h3>Idle detection</h3><p>Back from a break? Keep the time you were away, or remove it and continue or stop.</p></div>
+        <div><h3>Gentle reminders</h3><p>A nudge when no timer is running, an alert for timers left on too long, and a reminder to log at the end of the day.</p></div>
       </div>
     </div>
   </section>
 
-  <section class="soft">
-    <div class="wrap">
-      <h2>Everything you need, nothing you don't</h2>
-      <div class="grid">
-        <div class="card"><h3>Pinned tasks</h3><p>Pin the work you repeat and start it from the popover with ⌘1 to ⌘9.</p></div>
-        <div class="card"><h3>Find any task</h3><p>Starred projects, tasks due today and recent work come first. Search everything else, or paste a Teamwork task link.</p></div>
-        <div class="card"><h3>Log with care</h3><p>Type durations as 1:30, 1.5h or 90m, round to a step you choose, mark the task complete and set billable time.</p></div>
-        <div class="card"><h3>Edit as you go</h3><p>Move a running timer to another task, change its notes or tracked time, and edit logged entries later.</p></div>
-        <div class="card"><h3>Idle detection</h3><p>Back from a break? Keep the time you were away, or remove it and continue or stop.</p></div>
-        <div class="card"><h3>Gentle reminders</h3><p>A nudge when no timer is running, an alert for timers left on too long, and a reminder to log at the end of the day.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <div class="intro">
-        <h2>Your time goes to Teamwork. Nowhere else.</h2>
+  <section class="section alt" aria-labelledby="trust-title">
+    <div class="wrap trust">
+      <figure class="sync">
+        <div class="node"><img src="assets/icon.png" alt="" width="40" height="40"><div><b>Stint</b><small>In your Mac's menu bar</small></div></div>
+        <div class="wire" aria-hidden="true"></div>
+        <div class="node"><span class="glyph"><svg class="i" aria-hidden="true"><use href="#i-cloud"/></svg></span><div><b>Your Teamwork site</b><small>acme.teamwork.com, its own timers</small></div></div>
+        <div class="wire up" aria-hidden="true"></div>
+        <div class="node"><span class="glyph"><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg></span><div><b>Teamwork on the web</b><small>Where your team and reports already are</small></div></div>
+        <figcaption>There's no separate service in between: a timer you start on the web shows up in Stint, and one you start in Stint shows up on the web. Your time lands in Teamwork, where your team and your reports already are.</figcaption>
+      </figure>
+      <div>
+        <h2 id="trust-title" class="display">Your time goes to Teamwork. Nowhere else<span class="dot">.</span></h2>
         <ul class="checks">
           <li>Your sign-in is stored in the macOS Keychain.</li>
           <li>Stint talks only to your Teamwork site, and to teamwork.com when you use Teamwork Sign-In.</li>
           <li>No analytics, no tracking, no ads and no servers of our own. We never see your data.</li>
           <li>The source code is public on GitHub, so you can check all of this.</li>
         </ul>
-        <p><a href="privacy/">Read the privacy policy</a></p>
+        <a class="button quiet" href="privacy/">Read the privacy policy</a>
       </div>
     </div>
   </section>
 
-  <section class="soft" id="download">
+  <section class="section" id="download" aria-labelledby="get-title">
     <div class="wrap get">
-      <div class="panel">
-        <h2>Get Stint</h2>
-        <a class="button primary" href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg">Download Stint.dmg</a>
+      <div class="panel featured">
+        <h2 id="get-title">Get Stint</h2>
+        <a class="button light big" href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>Download Stint.dmg</a>
         <p class="small">The latest release from GitHub. <a href="https://github.com/doxigo/stint/releases/latest">Release notes</a></p>
-        <h3>Requirements</h3>
+        <h3 class="label">Requirements</h3>
         <ul class="checks">
           <li>macOS 26 or later</li>
           <li>A Mac with Apple silicon</li>
@@ -147,31 +261,42 @@
       </div>
       <div class="panel">
         <h2>Up and running in a minute</h2>
-        <ol>
-          <li>Open <code>Stint.dmg</code> and drag Stint into Applications.</li>
-          <li>Open Stint, choose <strong>Sign In</strong>, and enter your Teamwork site and API token.</li>
-          <li>Click the timer in the menu bar and start your first timer.</li>
+        <ol class="steps">
+          <li><span>Open <code>Stint.dmg</code> and drag Stint into Applications.</span></li>
+          <li><span>Open Stint, choose <strong>Sign In</strong>, and enter your Teamwork site and API token.</span></li>
+          <li><span>Click the timer in the menu bar and start your first timer.</span></li>
         </ol>
-        <a class="button outline" href="help/">Read the help</a>
+        <a class="button quiet" href="help/">Read the help</a>
       </div>
     </div>
   </section>
 </main>
 
 <footer class="site-footer">
-  <div class="wrap row">
-    <div>
-      <p><strong>Stint for Teamwork</strong></p>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="./"><img src="assets/icon.png" alt="" width="30" height="30">Stint for Teamwork</a>
+        <p>A native macOS menu bar timer for Teamwork.com.</p>
+      </div>
+      <nav aria-labelledby="f-app"><h2 id="f-app">Stint</h2><ul>
+        <li><a href="https://github.com/doxigo/stint/releases/latest/download/Stint.dmg">Download</a></li>
+        <li><a href="https://github.com/doxigo/stint/releases/latest">Release notes</a></li>
+        <li><a href="help/">Help</a></li>
+      </ul></nav>
+      <nav aria-labelledby="f-legal"><h2 id="f-legal">Legal</h2><ul>
+        <li><a href="privacy/">Privacy</a></li>
+        <li><a href="terms/">Terms</a></li>
+      </ul></nav>
+      <nav aria-labelledby="f-src"><h2 id="f-src">Source</h2><ul>
+        <li><a href="https://github.com/doxigo/stint">Source code</a></li>
+        <li><a href="https://github.com/doxigo/stint/issues">Report an issue</a></li>
+      </ul></nav>
+    </div>
+    <div class="foot-legal">
       <p>An independent project, not made or endorsed by Teamwork.com. “Teamwork” and “Teamwork.com” are trademarks of their owner, used here only to say what Stint works with.</p>
       <p>© 2026 Sohail Lajevardi</p>
     </div>
-    <nav aria-label="Footer">
-      <a href="help/">Help</a>
-      <a href="privacy/">Privacy</a>
-      <a href="terms/">Terms</a>
-      <a href="https://github.com/doxigo/stint">Source code</a>
-      <a href="https://github.com/doxigo/stint/issues">Report an issue</a>
-    </nav>
   </div>
 </footer>
 </body>

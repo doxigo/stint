@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-16T00:00:00Z",
+  "title": "Design System: Stint (public site)",
+  "source": "docs/assets/site.css; companion to .impeccable/DESIGN-site.md (root DESIGN.md is the native app's engineering doc)",
+  "extensions": {
+    "colorMeta": {
+      "purple": { "role": "primary", "displayName": "Stint Purple", "canonical": "#6438e0", "tonalRamp": ["#1e1143", "#321c70", "#46279d", "#5a32ca", "#7b56e5", "#a288ec", "#c9b9f4", "#ece7fb"] },
+      "purple-press": { "role": "primary", "displayName": "Purple Press", "canonical": "#5329cf" },
+      "lilac": { "role": "primary", "displayName": "Night Lilac", "canonical": "#a48bf7", "tonalRamp": ["#312a4a", "#52467c", "#7361ad", "#947dde", "#b29cf8", "#c8b9fa", "#dfd6fc", "#f4f1fe"] },
+      "pink": { "role": "secondary", "displayName": "Live Pink", "canonical": "#ff22b1", "tonalRamp": ["#4d0a35", "#801158", "#b2187c", "#e61f9f", "#ff43bd", "#ff7ad0", "#ffb2e4", "#ffe4f6"] },
+      "slate": { "role": "neutral", "displayName": "Slate", "canonical": "#1d1c39", "tonalRamp": ["#090811", "#0e0e1c", "#141428", "#1a1933", "#3f3e57", "#777788", "#b0b0ba", "#e4e4e7"] },
+      "night": { "role": "neutral", "displayName": "Night", "canonical": "#0f0e23" },
+      "night-hero-top": { "role": "neutral", "displayName": "Hero Top", "canonical": "#16153a" },
+      "header-night": { "role": "neutral", "displayName": "Header Night", "canonical": "rgba(19, 18, 46, 0.96)" },
+      "on-night": { "role": "neutral", "displayName": "On Night", "canonical": "#f4f3fb" },
+      "on-night-muted": { "role": "neutral", "displayName": "On Night Muted", "canonical": "#b9b6d3" },
+      "night-line": { "role": "neutral", "displayName": "Night Hairline", "canonical": "rgba(220, 214, 255, 0.12)" },
+      "muted": { "role": "neutral", "displayName": "Muted Ink", "canonical": "#595771", "tonalRamp": ["#1b1a22", "#2c2c38", "#3e3d4f", "#504e66", "#727086", "#9b9aaa", "#c5c4cd", "#ebebee"] }
+    },
+    "cssVariables": {
+      "light": { "--bg": "#ffffff", "--bg-alt": "#f6f5fb", "--surface": "#ffffff", "--text": "#1d1c39", "--muted": "#595771", "--line": "#e6e4f0", "--accent": "#6438e0", "--accent-soft": "#f0ecfd", "--code": "#f2f0f9" },
+      "dark": { "--bg": "#0f0e23", "--bg-alt": "#141329", "--surface": "#18172f", "--text": "#efeef8", "--muted": "#aba8c5", "--line": "rgba(220, 214, 255, 0.11)", "--accent": "#a48bf7", "--accent-soft": "rgba(164, 139, 247, 0.13)", "--code": "#211f3f" },
+      "popover-light": { "--p-bg": "#ffffff", "--p-text": "#1d1d1f", "--p-sub": "#626268", "--p-line": "#e5e5ea", "--p-btn": "#ececf0", "--p-run": "#f2effc", "--p-sel": "#6438e0", "--p-seltext": "#6438e0" },
+      "popover-dark": { "--p-bg": "#232325", "--p-text": "#f2f2f4", "--p-sub": "#98989f", "--p-line": "#38383c", "--p-btn": "#3a3a3e", "--p-run": "#2d2c3e", "--p-sel": "#6438e0", "--p-seltext": "#a48bf7" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Landing headline only, white on night, max 11em." },
+      "page-title": { "displayName": "Page title", "purpose": "Docs page heads." },
+      "headline": { "displayName": "Headline", "purpose": "Landing section heads and the trust statement." },
+      "title": { "displayName": "Title", "purpose": "Prose h2 and Get panel headings." },
+      "panel-title": { "displayName": "Panel title", "purpose": "Bento panel h3." },
+      "subhead": { "displayName": "Subhead", "purpose": "Default h3, feature-list items." },
+      "lede": { "displayName": "Lede", "purpose": "Under the display, muted on night." },
+      "body": { "displayName": "Body", "purpose": "Running text; prose max 70ch." },
+      "label": { "displayName": "Label", "purpose": "Uppercase TOC and footer column headings, Requirements label." },
+      "replica": { "displayName": "Replica (system)", "purpose": "Menu bar, badge, popover replica and toast only, so they read as macOS." },
+      "mono": { "displayName": "Mono", "purpose": "Code, pre, key caps." }
+    },
+    "fonts": [
+      { "family": "Work Sans", "src": "docs/assets/work-sans.woff2", "weights": "100 900", "display": "swap", "license": "docs/assets/work-sans-OFL.txt" }
+    ],
+    "shadows": [
+      { "name": "lift-light", "value": "0 1px 2px rgba(29, 28, 57, 0.05), 0 18px 40px -22px rgba(29, 28, 57, 0.28)", "purpose": "Panels, bleed screenshots, prose figures (light)." },
+      { "name": "lift-dark", "value": "0 1px 2px rgba(0, 0, 0, 0.3), 0 22px 44px -24px rgba(0, 0, 0, 0.7)", "purpose": "Same roles in dark mode." },
+      { "name": "button-light", "value": "0 8px 24px -10px rgba(4, 3, 16, 0.6)", "purpose": "White button on night; hover 0 12px 28px -10px rgba(4, 3, 16, 0.7)." },
+      { "name": "stage-window", "value": "0 30px 70px -20px rgba(5, 3, 20, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08)", "purpose": "Main window screenshot on the hero stage." },
+      { "name": "popover-stage", "value": "0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 30px 80px -10px rgba(0, 0, 0, 0.8)", "purpose": "Popover replica on the stage." },
+      { "name": "toast", "value": "0 8px 20px -10px rgba(29, 28, 57, 0.6)", "purpose": "Purple toast pill in a panel." },
+      { "name": "glow-hero", "value": "radial-gradient(42rem 24rem at 78% 18%, rgba(100, 56, 224, 0.42), transparent 70%), radial-gradient(30rem 20rem at 12% 42%, rgba(72, 84, 214, 0.22), transparent 70%)", "purpose": "Light source on night grounds (hero; page head uses a smaller pair)." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "All entrances and button transforms." },
+      { "name": "glow-drift", "value": "drift 22s ease-in-out infinite alternate; to { transform: translate3d(-4%, 3%, 0) scale(1.06) }", "purpose": "Hero glow layer." },
+      { "name": "hero-rise", "value": "rise 0.9s ease-out both; from { opacity: 0; transform: translateY(14px); filter: blur(6px) }; delays 0.08s, stage 0.18s at 1.1s", "purpose": "One orchestrated landing entrance, only with JS." },
+      { "name": "popover-open", "value": "opacity 0.18s, transform 0.28s ease-out from scale(0.96) translateY(-4px); close 0.14s", "purpose": "Popover replica toggle." },
+      { "name": "reduced-motion", "value": "@media (prefers-reduced-motion: no-preference)", "purpose": "Gate on every animation and smooth scroll." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "599px (max)" },
+      { "name": "hero-row", "value": "860px" },
+      { "name": "trust", "value": "900px" },
+      { "name": "docs", "value": "960px" },
+      { "name": "extras-2", "value": "700px" },
+      { "name": "extras-4", "value": "1000px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Light Button",
+      "kind": "button",
+      "refersTo": "button-light",
+      "description": "The primary call on night grounds; the Download pill is its 36px header size.",
+      "html": "<div class=\"ds-night\"><a class=\"ds-btn-light\" href=\"#\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 4v11M7 10l5 5 5-5M5 20h14\"/></svg>Download for Mac</a></div>",
+      "css": ".ds-night { background: #0f0e23; padding: 24px; } .ds-btn-light { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 22px; border-radius: 12px; background: #fff; color: #1d1c39; font: 600 1.0625rem 'Work Sans', system-ui, sans-serif; letter-spacing: -0.005em; text-decoration: none; box-shadow: 0 8px 24px -10px rgba(4, 3, 16, 0.6); transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-light:hover { background: #f1edff; transform: translateY(-1px); box-shadow: 0 12px 28px -10px rgba(4, 3, 16, 0.7); } .ds-btn-light:active { transform: translateY(1px) scale(0.99); } .ds-btn-light:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Purple fill for calls on light grounds.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Download Stint.dmg</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 12px; background: #6438e0; color: #fff; font: 600 1.0625rem 'Work Sans', system-ui, sans-serif; text-decoration: none; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s; } .ds-btn-primary:hover { background: #5329cf; } .ds-btn-primary:active { transform: translateY(1px) scale(0.99); } .ds-btn-primary:focus-visible { outline: 2px solid #6438e0; outline-offset: 3px; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary action inside panels.",
+      "html": "<a class=\"ds-btn-quiet\" href=\"#\">Read the help</a>",
+      "css": ".ds-btn-quiet { display: inline-flex; align-items: center; min-height: 48px; padding: 0 22px; border-radius: 12px; background: #fff; color: #1d1c39; border: 1px solid #e6e4f0; font: 600 1.0625rem 'Work Sans', system-ui, sans-serif; text-decoration: none; transition: border-color 0.2s, color 0.2s; } .ds-btn-quiet:hover { border-color: #6438e0; color: #6438e0; } .ds-btn-quiet:focus-visible { outline: 2px solid #6438e0; outline-offset: 3px; }"
+    },
+    {
+      "name": "Site Header",
+      "kind": "nav",
+      "refersTo": "site-header",
+      "description": "Sticky night band on every page: brand, nav, Download pill.",
+      "html": "<header class=\"ds-header\"><a class=\"ds-brand\" href=\"#\">Stint</a><nav><a href=\"#\" aria-current=\"page\">Help</a><a href=\"#\">Privacy</a><a href=\"#\">Terms</a><a href=\"#\">GitHub</a></nav><a class=\"ds-pill\" href=\"#\">Download</a></header>",
+      "css": ".ds-header { display: flex; align-items: center; gap: 28px; min-height: 64px; padding: 0 16px; background: rgba(19, 18, 46, 0.96); border-bottom: 1px solid rgba(220, 214, 255, 0.12); color: #f4f3fb; font-family: 'Work Sans', system-ui, sans-serif; } .ds-brand { color: #fff; font-weight: 650; font-size: 1.125rem; letter-spacing: -0.01em; text-decoration: none; margin-right: auto; } .ds-header nav { display: flex; gap: 22px; } .ds-header nav a { color: #b9b6d3; text-decoration: none; font-weight: 500; font-size: 0.9375rem; transition: color 0.2s; } .ds-header nav a:hover, .ds-header nav a[aria-current=page] { color: #fff; } .ds-header nav a[aria-current=page] { text-decoration: underline; text-decoration-color: #a48bf7; text-decoration-thickness: 2px; text-underline-offset: 0.45em; } .ds-header a:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 6px; } .ds-pill { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 10px; background: #fff; color: #1d1c39; font-weight: 600; font-size: 0.9375rem; text-decoration: none; } .ds-pill:hover { background: #f1edff; }"
+    },
+    {
+      "name": "Menu Bar Badge",
+      "kind": "custom",
+      "refersTo": "menubar-badge",
+      "description": "Stint's running status item: purple glyph segment plus slate tabular time.",
+      "html": "<div class=\"ds-night\"><button class=\"ds-badge\" type=\"button\"><span class=\"ds-seg\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 10 10\" aria-hidden=\"true\"><rect x=\"2\" y=\"1.5\" width=\"2\" height=\"7\" rx=\"0.5\" fill=\"currentColor\"/><rect x=\"6\" y=\"1.5\" width=\"2\" height=\"7\" rx=\"0.5\" fill=\"currentColor\"/></svg></span><span class=\"ds-time\">0:38:14</span></button></div>",
+      "css": ".ds-night { background: #19173f; padding: 16px; } .ds-badge { display: inline-flex; align-items: stretch; height: 22px; padding: 0; border: 0; border-radius: 5px; overflow: hidden; font: 600 13px/22px system-ui, -apple-system, sans-serif; font-variant-numeric: tabular-nums; color: #fff; background: transparent; cursor: pointer; } .ds-seg { display: grid; place-items: center; width: 22px; background: #6438e0; } .ds-time { padding: 0 8px; background: #1d1c39; } .ds-badge:hover .ds-time { background: #2b2958; } .ds-badge:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Bento Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Content panel that holds real UI, never an icon tile.",
+      "html": "<article class=\"ds-panel\"><h3>Log with care</h3><p>Type durations the way you think of them.</p><ul class=\"ds-hair\"><li><code>1:30</code><span>1 hour 30 minutes</span></li><li><code>90m</code><span>1 hour 30 minutes</span></li></ul></article>",
+      "css": ".ds-panel { background: #fff; color: #1d1c39; border: 1px solid #e6e4f0; border-radius: 22px; padding: 28px; box-shadow: 0 1px 2px rgba(29, 28, 57, 0.05), 0 18px 40px -22px rgba(29, 28, 57, 0.28); font-family: 'Work Sans', system-ui, sans-serif; max-width: 420px; } .ds-panel h3 { font-size: 1.3rem; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 0.4em; } .ds-panel p { color: #595771; margin: 0 0 20px; } .ds-hair { list-style: none; margin: 0; padding: 0; border-bottom: 1px solid #e6e4f0; font-size: 0.95rem; } .ds-hair li { display: flex; justify-content: space-between; padding: 11px 0; border-top: 1px solid #e6e4f0; } .ds-hair code { font: 600 1em ui-monospace, Menlo, monospace; color: #6438e0; } .ds-hair span { color: #595771; }"
+    },
+    {
+      "name": "Featured Panel",
+      "kind": "card",
+      "refersTo": "panel-featured",
+      "description": "Slate panel lit by a corner glow; used for Get Stint.",
+      "html": "<article class=\"ds-feat\"><h2>Get Stint<span class=\"ds-dot\">.</span></h2><p>The latest release from GitHub.</p></article>",
+      "css": ".ds-feat { position: relative; isolation: isolate; overflow: hidden; background: #1d1c39; color: #f4f3fb; border-radius: 22px; padding: 28px; font-family: 'Work Sans', system-ui, sans-serif; max-width: 420px; } .ds-feat::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(80% 60% at 100% 0%, rgba(100, 56, 224, 0.55), transparent 70%); } .ds-feat h2 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; margin: 0 0 0.4em; color: #fff; } .ds-feat p { color: #b9b6d3; margin: 0; } .ds-dot { color: #ff22b1; }"
+    },
+    {
+      "name": "Note",
+      "kind": "custom",
+      "refersTo": "note",
+      "description": "Tinted callout in docs prose.",
+      "html": "<div class=\"ds-note\"><p>Current builds aren't notarized by Apple yet.</p></div>",
+      "css": ".ds-note { background: #f0ecfd; border: 1px solid color-mix(in srgb, #6438e0 22%, transparent); border-radius: 14px; padding: 14px 18px; color: #1d1c39; font-family: 'Work Sans', system-ui, sans-serif; } .ds-note p { margin: 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Menu Bar at Night",
+    "overview": "The site opens on the product. Every page starts in a night band: deep slate lit by slow purple and indigo glows, a sticky header with the brand on the left and a white Download pill on the right. On the landing page that night becomes a stage: a slice of a Mac desktop with a menu bar strip, Stint's purple-and-slate time badge ticking, and a working popover replica hanging beneath it, the main window screenshot behind. Work Sans is set huge and tight for display, then quiet at reading size.\n\nBelow the night, the page follows the visitor's system setting: cool white or deep slate. Content sits in bento panels that hold real UI (popover strips, menu bar style swatches, duration tables, screenshots) and in hairline lists, never in icon tiles. Docs pages swap the stage for a shorter night page head, then a sticky table of contents beside a 70ch prose column.\n\nDensity is relaxed on the landing page (sections of 72 to 128px) and calm for reading on docs pages. Depth is soft and ambient; corners are generous; colour is mostly slate, white and one purple, with pink kept to tiny points of life.",
+    "keyCharacteristics": [
+      "Night slate header and hero or page head in both colour schemes; everything below follows `prefers-color-scheme`.",
+      "Oversized, tight display type (-0.04em) in self-hosted Work Sans.",
+      "A live, clickable product replica instead of a static hero screenshot.",
+      "Bento panels and hairline lists carry real UI and real text.",
+      "Purple as the single accent; pink only as dots and full stops.",
+      "No third-party requests: fonts, script and images are first-party."
+    ],
+    "rules": [
+      { "name": "The Pink Point Rule", "body": "Pink is a dot: the live-timer dot, a wire node, a hint marker, a headline's full stop. Never a button, a fill, a border or a word.", "section": "colors" },
+      { "name": "The Night Stays Night Rule", "body": "The header, the landing stage and the docs page head are night slate in both schemes. Only content below them follows the system.", "section": "colors" },
+      { "name": "The Accent Swap Rule", "body": "On light grounds the accent is Stint Purple; on dark grounds it is Night Lilac. Fills stay purple in both.", "section": "colors" },
+      { "name": "The Tight Top Rule", "body": "Tracking tightens as size grows: -0.04em display, -0.035em headline, -0.03em title, -0.02em to -0.01em at subhead. Body is untracked.", "section": "typography" },
+      { "name": "The Tabular Time Rule", "body": "Every duration or clock uses tabular numerals.", "section": "typography" },
+      { "name": "The Lit Night Rule", "body": "Night surfaces gain depth from radial purple (`rgba(100,56,224,0.42 to 0.55)`) and indigo glows, never from shadows.", "section": "elevation" }
+    ],
+    "dos": [
+      "**Do** open every page on night slate (header plus hero stage or page head) in both schemes, and let everything below follow the system.",
+      "**Do** use Stint Purple for fills and Night Lilac for accent text and lines on dark grounds.",
+      "**Do** end display and headline statements with a pink full stop when they are sentences (`<span class=\"dot\">.</span>`).",
+      "**Do** fill panels with real product UI or screenshots of sample data.",
+      "**Do** keep Work Sans self-hosted and every asset, script and font first-party.",
+      "**Do** put every animation behind `prefers-reduced-motion: no-preference`.",
+      "**Do** use tabular numerals for all times and durations."
+    ],
+    "donts": [
+      "**Don't** use pink for buttons, fills, borders or text larger than a full stop.",
+      "**Don't** show Teamwork's logo or brand marks; write its name as text, and keep the \"independent project, not made or endorsed by Teamwork.com\" line.",
+      "**Don't** load anything from a third party: no font CDNs, analytics or embeds.",
+      "**Don't** use purple `#6438e0` as text on dark grounds; it fails 4.5:1 there.",
+      "**Don't** build icon tiles or feature cards with a glyph and a sentence; use real UI or hairline lists.",
+      "**Don't** use the system font outside the macOS replica elements."
+    ]
+  }
+}
