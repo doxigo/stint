@@ -369,11 +369,13 @@ private struct LogRecovery: View {
     }
 }
 
-/// Edits a logged entry: duration, start, description, billable.
+/// Edits a logged entry: task, duration, start, description, billable.
 struct EditEntryView: View {
     @Environment(Store.self) private var store
     let entry: TimeEntry
     let done: () -> Void
+    @State private var target: WorkItem?
+    @State private var choosing = false
     @State private var duration = ""
     @State private var start = Date.now
     @State private var description = ""
@@ -381,13 +383,38 @@ struct EditEntryView: View {
     @State private var saving = false
 
     var body: some View {
-        let seconds = parseDuration(duration)
-        let task = entry.taskId.flatMap(store.taskName)
-        let project = entry.projectId.map(store.projectName)
         VStack(spacing: 0) {
+            if choosing {
+                ScreenHeader("Change Task") { choosing = false }
+                WorkPicker(maxHeight: 360) { item in
+                    target = item
+                    choosing = false
+                }
+            } else {
+                form
+            }
+        }
+        // Out here, so coming back from the task picker keeps what was typed.
+        .onAppear {
+            duration = TimeInterval(entry.minutes * 60).hoursMinutes
+            start = entry.timeLogged ?? .now
+            description = entry.description
+            billable = entry.billable
+        }
+    }
+
+    private var form: some View {
+        let seconds = parseDuration(duration)
+        let task = target.map(\.taskName) ?? entry.taskId.flatMap(store.taskName)
+        let project = target?.projectName ?? entry.projectId.map(store.projectName)
+        return VStack(spacing: 0) {
             ScreenHeader("Edit Entry", back: done)
             TaskSummary(title: task ?? project ?? "Time entry", subtitle: task == nil ? nil : project,
-                        url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
+                        url: store.webURL(projectId: target?.projectId ?? entry.projectId,
+                                          taskId: target.map(\.taskId) ?? entry.taskId)) {
+                Button("Change…") { choosing = true }
+                    .help("Move this entry to another task or project")
+            }
             Divider()
             FieldRow(label: "Duration",
                      note: (seconds ?? 0) < 60 ? "Enter at least 1 minute, like 1:30, 1.5h or 90m." : nil,
@@ -409,7 +436,8 @@ struct EditEntryView: View {
                     guard let seconds else { return }
                     saving = true
                     Task {
-                        if await store.updateEntry(entry, seconds: seconds, start: start, description: description, billable: billable) {
+                        if await store.updateEntry(entry, target: target, seconds: seconds, start: start,
+                                                   description: description, billable: billable) {
                             done()
                         }
                         saving = false
@@ -418,12 +446,6 @@ struct EditEntryView: View {
                 .primaryAction()
                 .disabled(saving || (seconds ?? 0) < 60)
             }
-        }
-        .onAppear {
-            duration = TimeInterval(entry.minutes * 60).hoursMinutes
-            start = entry.timeLogged ?? .now
-            description = entry.description
-            billable = entry.billable
         }
     }
 }

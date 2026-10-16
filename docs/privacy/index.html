@@ -118,15 +118,10 @@
                 <td><code>~/Library/Application Support/com.doxigo.TeamworkTimer/LogAttempts/</code></td>
                 <td>One small file per account, named with a one-way hash of the site and user ID. It lists the IDs of timers that were being logged and whether Teamwork confirmed each one, so an interrupted log is never sent twice.</td>
               </tr>
-              <tr>
-                <td>Network cache</td>
-                <td><code>~/Library/Caches/com.doxigo.TeamworkTimer/</code> and <code>~/Library/HTTPStorages/com.doxigo.TeamworkTimer/</code></td>
-                <td>macOS's networking system can keep copies of recent responses from your Teamwork site, such as timers, time entries, and task and project names.</td>
-              </tr>
             </tbody>
           </table>
         </div>
-        <p>While Stint is running, it also holds your timers, entries and task names in memory. If you turn on <strong>Open at login</strong>, macOS records Stint as a login item.</p>
+        <p>While Stint is running, it also holds your timers, entries and task names in memory; it doesn't keep copies of Teamwork's responses on disk. If you turn on <strong>Open at login</strong>, macOS records Stint as a login item.</p>
       </section>
 
       <section>
@@ -159,7 +154,7 @@
         <ol>
           <li>In Stint's Settings, choose <strong>Account</strong>, then <strong>Sign Out</strong>. This removes your token from the Keychain.</li>
           <li>Turn off <strong>Open at login</strong> if it's on. Quit Stint and move it from Applications to the Trash.</li>
-          <li>To remove Stint's settings and files, run these in Terminal:
+          <li>To remove Stint's settings and files, including the network cache that versions up to 0.3.0 could leave, run these in Terminal:
             <pre><code>defaults delete com.doxigo.TeamworkTimer
 rm -rf ~/Library/Application\ Support/com.doxigo.TeamworkTimer \
   ~/Library/Caches/com.doxigo.TeamworkTimer \

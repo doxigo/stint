@@ -366,6 +366,9 @@ struct EntriesView: View {
                 ContentUnavailableView("Nothing Logged", systemImage: "clock", description: Text("Time you log shows up here."))
             }
         }
+        // A week that arrives from the network fades in over the spinner. Leaving a week (⌘[ ⌘]) and cached
+        // weeks stay instant: keyboard steps shouldn't wait on a fade.
+        .animation(weekEntries == nil ? nil : .easeOut(duration: 0.2), value: weekEntries == nil)
         .navigationTitle(title)
         .navigationSubtitle(target.map { "Logged \(total.hoursMinutes) of \($0.hoursMinutes)" } ?? "Logged \(total.hoursMinutes)")
         .toolbar {
@@ -388,6 +391,10 @@ struct EntriesView: View {
             await store.loadWeek(containing: anchor)
         }
         .refreshable { await store.loadWeek(containing: anchor) }
+        // Back from the browser: entries edited on the web show up.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await store.loadWeek(containing: anchor) }
+        }
     }
 
     private var title: String {
@@ -507,7 +514,8 @@ struct MyTasksView: View {
     @Environment(Store.self) private var store
     @AppStorage("myTasksFilter") private var filter = TeamworkClient.TaskFilter.today
     @State private var items: [WorkItem] = []
-    @State private var loading = false
+    /// True from the start: false showed "No Tasks" for a frame before the first load began.
+    @State private var loading = true
 
     var body: some View {
         Page {
@@ -517,10 +525,14 @@ struct MyTasksView: View {
             }
         }
         .overlay {
-            if items.isEmpty && !loading {
+            if items.isEmpty && loading {
+                ProgressView().controlSize(.small) // as on the other pages that load
+            } else if items.isEmpty {
                 ContentUnavailableView("No Tasks", systemImage: "checklist", description: Text("Nothing assigned to you here."))
             }
         }
+        // Switching filter crossfades the list rather than swapping it in one frame.
+        .animation(.easeOut(duration: 0.2), value: items.map(\.id))
         .navigationTitle("My Tasks")
         .toolbar {
             ToolbarItem {

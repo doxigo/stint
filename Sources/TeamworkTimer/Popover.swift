@@ -70,9 +70,9 @@ struct MenuBarView: View {
             await store.refreshToday()
             await store.refreshDueToday()
         }
-        // Revalidates the (cached) week on week change, after anything is logged, and once the user ID
-        // arrives (it can still be loading when the popover first opens after launch or sign-in).
-        .task(id: "\(week.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
+        // Revalidates the (cached) week on every open (entries edited on the web), on week change, after anything
+        // is logged, and once the user ID arrives (it can still be loading when the popover first opens after launch).
+        .task(id: "\(opens)|\(week.start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") {
             await store.loadWeek(containing: day)
         }
     }
@@ -100,7 +100,7 @@ struct MenuBarView: View {
         return ScreenHeader(title: isToday ? "Today: \(title)" : title) {
             if !isToday {
                 Button("Today") { day = calendar.startOfDay(for: .now) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())
                     .font(.callout.weight(.medium))
                     .keyboardShortcut("t")
             } else if let target = store.target(in: calendar.dateInterval(of: .day, for: day)!) {
@@ -285,18 +285,19 @@ struct WeekStrip: View {
         let days = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: week.start) }
         HStack(spacing: 0) {
             // One day at a time (as ← → do); stepping past Monday or Sunday moves the strip to that week.
-            Button { move(-1) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 48) }
+            // The whole 28×48 column takes the click, not just the glyph.
+            Button { move(-1) } label: { Image(systemName: "chevron.left").frame(width: 28, height: 48).contentShape(.rect) }
                 .help("Previous day")
                 .accessibilityLabel("Previous day")
             ForEach(days, id: \.self) { day in
                 DayCell(day: day, selected: $selected, logged: totals[calendar.startOfDay(for: day)] ?? 0,
                         live: liveToday && calendar.isDateInToday(day))
             }
-            Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48) }
+            Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48).contentShape(.rect) }
                 .help("Next day")
                 .accessibilityLabel("Next day")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .padding(.horizontal, Space.s)
         .padding(.vertical, Space.m)
     }
@@ -313,6 +314,7 @@ private struct DayCell: View {
     @Binding var selected: Date
     let logged: TimeInterval
     let live: Bool
+    @State private var hovering = false
 
     var body: some View {
         let calendar = Calendar.current
@@ -328,15 +330,20 @@ private struct DayCell: View {
                     .font(.body.weight(isSelected || isToday ? .semibold : .regular))
                     .foregroundStyle(isSelected ? AnyShapeStyle(.white) : isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
                     .frame(width: 34, height: 34)
-                    .background(isSelected ? Brand.purpleFill : .clear, in: .circle)
+                    // A faint circle under the pointer says the day is clickable; selection itself moves instantly
+                    // (← → step through days many times a day).
+                    .background(isSelected ? Brand.purpleFill : Brand.purple.opacity(hovering ? 0.1 : 0), in: .circle)
+                    .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
                 Text(total.hoursMinutes)
                     .font(.caption)
                     .monospacedDigit()
+                    .rollingDigits(total.hoursMinutes)
                     .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
             }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
+        .onHover { hovering = $0 }
         .accessibilityLabel("\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -352,6 +359,7 @@ struct TodayTotal: View {
     var body: some View {
         let total = logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
         Text("\(total.hoursMinutes) / \(target.hoursMinutes)")
+            .rollingDigits(total.hoursMinutes)
             .accessibilityLabel("Today, \(total.spoken) of \(target.spoken)")
     }
 }
@@ -390,11 +398,13 @@ struct PinnedList: View {
 }
 
 /// A logged entry in the popover's day list: bold task, project and notes; duration and Start (restart).
+/// An Edit icon appears under Start on hover, as on timer rows; double-click, the context menu and VoiceOver also edit.
 struct DayEntryRow: View {
     @Environment(Store.self) private var store
     let entry: TimeEntry
     let onEdit: () -> Void
     @State private var confirmingDelete = false
+    @State private var hovering = false
 
     var body: some View {
         if confirmingDelete {
@@ -417,9 +427,10 @@ struct DayEntryRow: View {
             WorkItem(projectId: $0, projectName: project, taskId: entry.taskId, taskName: task,
                      description: entry.description, billable: entry.billable)
         }
+        let title = task ?? project
         return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
-                TitleLink(title: task ?? project, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
+                TitleLink(title: title, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
                 if task != nil { Text(project).foregroundStyle(.secondary).lineLimit(1) }
                 if !entry.description.isEmpty {
                     Text(entry.description).font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -433,16 +444,32 @@ struct DayEntryRow: View {
                 Text(TimeInterval(entry.minutes * 60).hoursMinutes)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
-                if let item {
-                    Button { Task { await store.start(item) } } label: { Label("Start", systemImage: "clock") }
-                        .buttonStyle(.bordered)
-                        .help("Start a new timer on this task")
+                // One column as wide as Start, so Edit spans it, as Edit and Log do on timer rows.
+                VStack(spacing: Space.xs) {
+                    if let item {
+                        Button { Task { await store.start(item) } } label: { Label("Start", systemImage: "clock") }
+                            .buttonStyle(.bordered)
+                            .help("Start a new timer on this task")
+                    }
+                    if !entry.locked {
+                        Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
+                            .buttonStyle(RowIconStyle())
+                            .help("Edit time, date or notes")
+                            .accessibilityLabel("Edit \(title) entry")
+                            // Space kept while hidden, so rows don't jump; VoiceOver edits through the row's actions.
+                            .opacity(hovering ? 1 : 0)
+                            .disabled(!hovering)
+                            .accessibilityHidden(!hovering)
+                            .animation(.easeOut(duration: 0.15), value: hovering)
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, Space.l)
         .padding(.vertical, Space.m)
         .contentShape(.rect)
+        .onHover { hovering = $0 }
         .onTapGesture(count: 2) { if !entry.locked { onEdit() } }
         .contextMenu {
             if let item { Button("Start Timer Again") { Task { await store.start(item) } } }
@@ -455,6 +482,13 @@ struct DayEntryRow: View {
             Button("Delete…", role: .destructive) { confirmingDelete = true }.disabled(entry.locked)
         }
         .accessibilityElement(children: .contain)
+        // The context menu alone isn't reliably reachable with VoiceOver.
+        .accessibilityActions {
+            if !entry.locked {
+                Button("Edit \(title) entry", action: onEdit)
+                Button("Delete Entry") { confirmingDelete = true }
+            }
+        }
     }
 }
 
@@ -515,7 +549,7 @@ struct TimeSummary: View {
             Text(value?.hoursMinutes ?? "–")
                 .font(.system(size: 30, weight: .semibold))
                 .monospacedDigit()
-                .contentTransition(.numericText())
+                .rollingDigits(value?.hoursMinutes) // contentTransition alone never ran: nothing animated the change
             if let target, let value {
                 ProgressView(value: min(value / target, 1))
                     .progressViewStyle(.linear)

@@ -36,6 +36,9 @@ actor TeamworkClient {
 
     /// Retries of one request after 429s (Teamwork allows about 150 requests a minute).
     static let rateLimitRetries = 3
+    /// Ephemeral, so nothing Teamwork returns (timers, time, task and project names) is cached on disk. Also used
+    /// for the Launchpad sign-in; a `var` only so the checks can route it through their mock transport.
+    nonisolated(unsafe) static var session = URLSession(configuration: .ephemeral)
 
     init(credentials: Credentials, onRateLimit: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         self.credentials = credentials
@@ -96,10 +99,13 @@ actor TeamworkClient {
 
     /// Sends the whole timer (not just the changed fields) in case the edit endpoint replaces rather than merges.
     /// `target` moves the timer to another project/task; its tracked time stays unless `seconds` sets it
-    /// (Teamwork replaces the timer's runs with one that long; a running timer carries on from there).
+    /// (Teamwork replaces the timer's runs with one that long). Like Teamwork's web app, a running timer is paused
+    /// before its time is set; it's then resumed, so it carries on from there.
     func update(_ timer: TWTimer, target: WorkItem? = nil, description: String, billable: Bool,
                 seconds: TimeInterval? = nil) async throws {
-        var body: [String: Any] = ["description": description, "isBillable": billable, "isRunning": timer.running]
+        let paused = timer.running && seconds != nil
+        if paused { try await pause(timer.id) }
+        var body: [String: Any] = ["description": description, "isBillable": billable, "isRunning": timer.running && !paused]
         if let seconds { body["seconds"] = Int(seconds) }
         if let projectId = target?.projectId ?? timer.projectId { body["projectId"] = projectId }
         if let target {
@@ -107,7 +113,11 @@ actor TeamworkClient {
         } else if let taskId = timer.taskId {
             body["taskId"] = taskId
         }
-        try await send("PUT", "projects/api/v3/me/timers/\(timer.id).json", body: ["timer": body])
+        do { try await send("PUT", "projects/api/v3/me/timers/\(timer.id).json", body: ["timer": body]) }
+        catch { if paused { try? await resume(timer.id) }; throw error }
+        // ponytail: the time is set by now, so a failed resume leaves it paused (as the web app does) rather than
+        // failing the edit.
+        if paused { try? await resume(timer.id) }
     }
 
     // MARK: Time entries
@@ -122,11 +132,15 @@ actor TeamworkClient {
         ])
     }
 
-    /// Edits a logged entry (PATCH merges the given fields).
-    func updateEntry(_ id: Int, seconds: TimeInterval, start: Date, description: String, billable: Bool) async throws {
-        try await send("PATCH", "projects/api/v3/time/\(id).json", body: [
-            "timelog": Self.timelog(seconds: seconds, start: start, description: description, billable: billable),
-        ])
+    /// Edits a logged entry (PATCH merges the given fields); `target` moves it to another project/task.
+    func updateEntry(_ id: Int, seconds: TimeInterval, start: Date, description: String, billable: Bool,
+                     target: WorkItem? = nil) async throws {
+        var timelog = Self.timelog(seconds: seconds, start: start, description: description, billable: billable)
+        if let target {
+            timelog["projectId"] = target.projectId
+            timelog["taskId"] = target.taskId.map { $0 as Any } ?? NSNull() // project-only clears the task
+        }
+        try await send("PATCH", "projects/api/v3/time/\(id).json", body: ["timelog": timelog])
     }
 
     func deleteEntry(_ id: Int) async throws { try await send("DELETE", "projects/api/v3/time/\(id).json") }
@@ -249,7 +263,8 @@ actor TeamworkClient {
             // URLComponents leaves "+" alone, which servers read as a space ("C++" → "C  ").
             components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
-        var request = URLRequest(url: components.url!)
+        // Never answered from the session's memory cache: a poll must see time changed on the web.
+        var request = URLRequest(url: components.url!, cachePolicy: .reloadIgnoringLocalCacheData)
         request.httpMethod = method
         request.setValue(credentials.authorization, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -260,7 +275,7 @@ actor TeamworkClient {
         var retries = 0
         while true {
             try await waitOutRateLimit()
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.session.data(for: request)
             let http = response as? HTTPURLResponse
             let status = http?.statusCode ?? 0
             // A 429 is refused before Teamwork processes the request, so even a time entry's POST is safe to send

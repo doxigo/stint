@@ -191,7 +191,9 @@ struct TitleLink: View {
                 lastOpened = .now
                 openURL(url)
             } label: {
-                Text(hovering ? "\(title) \(Image(systemName: "arrow.up.right"))" : "\(title)")
+                // The ↗ is always laid out and only shown on hover: appended on hover, it could push the title
+                // onto another line and make the row (and the popover) jump.
+                Text("\(title) \(Text(Image(systemName: "arrow.up.right")).foregroundStyle(.primary.opacity(hovering ? 1 : 0)))")
                     .fontWeight(.semibold)
                     .lineLimit(lineLimit)
                     .multilineTextAlignment(.leading)
@@ -316,6 +318,7 @@ struct WorkRow: View {
                     Image(systemName: "play.fill")
                         .foregroundStyle(.tint)
                         .opacity(hovering ? 1 : 0)
+                        .animation(.easeOut(duration: 0.15), value: hovering) // in step with Log beside it
                         .allowsHitTesting(false)
                 }
                 .padding(.horizontal, Space.l)
@@ -452,6 +455,8 @@ struct TimerRow: View {
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.m)
         .background(timer.running ? Brand.purple.opacity(0.07) : .clear)
+        // Start/Pause settles in (wash, button, live dot) rather than flashing; the row's height doesn't change.
+        .animation(.easeOut(duration: 0.2), value: timer.running)
         .contentShape(.rect)
         .onHover { hovering = $0 }
         .contextMenu {
@@ -523,6 +528,8 @@ struct RowStyle: ButtonStyle {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(.rect)
                 .background(Brand.purple.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
+                // Lights up at once under the pointer, fades as it leaves: sweeping a list leaves a short trail.
+                .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
                 .onHover { hovering = $0 }
         }
     }
@@ -549,7 +556,7 @@ struct RowIconStyle: ButtonStyle {
                             in: .rect(cornerRadius: 7, style: .continuous))
                 .contentShape(.rect)
                 .onHover { hovering = $0 }
-                .animation(.easeOut(duration: 0.12), value: hovering)
+                .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
         }
     }
 }
@@ -562,6 +569,7 @@ struct ElapsedText: View {
     var body: some View {
         let elapsed = store.elapsed(timer, at: store.menuBarNow)
         Text(elapsed.hoursMinutes)
+            .rollingDigits(elapsed.hoursMinutes)
             .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
     }
 }

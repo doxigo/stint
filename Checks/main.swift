@@ -10,26 +10,18 @@ var failed = 0
 let t0 = Date(timeIntervalSince1970: 1_000)
 func iso(_ text: String) -> Date { try! Date(text, strategy: .iso8601) }
 
-// Elapsed: finished runs from `intervals` + the current run from `lastStartedAt`; `duration` only as fallback.
+// Elapsed, as Teamwork's web app reckons it: `duration` (the finished runs) + the current run from `lastStartedAt`.
 let current = t0.addingTimeInterval(500)
 let runs = [TWTimer.Interval(from: t0, to: t0.addingTimeInterval(60)),
             TWTimer.Interval(from: t0.addingTimeInterval(200), to: t0.addingTimeInterval(320)),
             TWTimer.Interval(from: current, to: nil)]
-let running = TWTimer(id: 1, running: true, duration: 999, lastStartedAt: current, intervals: runs)
-check(running.elapsed(at: t0.addingTimeInterval(530)) == 210, "running: finished runs + current run")
-var openWithTo = runs
-openWithTo[2].to = current.addingTimeInterval(5)
-check(TWTimer(id: 1, running: true, duration: 0, lastStartedAt: current, intervals: openWithTo)
-    .elapsed(at: t0.addingTimeInterval(530)) == 210, "running: open run's `to` is ignored")
-check(TWTimer(id: 2, running: false, duration: 999, lastStartedAt: current, intervals: Array(runs.prefix(2)))
-    .elapsed(at: .distantFuture) == 180, "paused: sum of runs")
+let running = TWTimer(id: 1, running: true, duration: 180, lastStartedAt: current, intervals: runs)
+check(running.elapsed(at: t0.addingTimeInterval(530)) == 210, "running: duration + current run")
+check(TWTimer(id: 2, running: false, duration: 1500, lastStartedAt: current, intervals: Array(runs.prefix(2)))
+    .elapsed(at: .distantFuture) == 1500, "paused: Teamwork's duration, even when an edit left runs that add up otherwise")
 check(TWTimer(id: 3, running: true, duration: 600, lastStartedAt: t0).elapsed(at: t0.addingTimeInterval(90)) == 690,
-      "no intervals: duration fallback")
+      "running without intervals")
 check(running.startedAt == t0, "startedAt is the first run")
-// Server reports the open run a few ms off lastStartedAt *and* with a `to`: must not count it twice.
-let skewed = [runs[0], runs[1], TWTimer.Interval(from: current.addingTimeInterval(0.25), to: current.addingTimeInterval(20))]
-check(TWTimer(id: 4, running: true, duration: 0, lastStartedAt: current, intervals: skewed)
-    .elapsed(at: t0.addingTimeInterval(530)) == 210, "running: skewed open run not double-counted")
 // Most recently used first: B was created later, but A ran last.
 let a = TWTimer(id: 1, running: false, duration: 0, lastStartedAt: t0.addingTimeInterval(300),
                 intervals: [.init(from: t0.addingTimeInterval(300), to: t0.addingTimeInterval(400))])
@@ -50,6 +42,12 @@ let page = try decoder.decode(TimersResponse.self, from: Data(timerJSON.utf8))
 let timer = page.timers[0]
 check(timer.projectId == 5 && timer.taskId == 9 && timer.running && timer.intervals.count == 2, "timer refs + intervals")
 check(timer.elapsed(at: timer.lastStartedAt!.addingTimeInterval(60)) == 180, "decoded elapsed")
+// Real running timer (anonymized): `duration` leaves out the run in progress, whose `to` is the zero date.
+let live = try decoder.decode(TWTimer.self, from: Data("""
+{"id":1,"running":true,"duration":0,"lastStartedAt":"2026-10-16T11:00:36Z",
+ "intervals":[{"id":2,"from":"2026-10-16T11:00:36Z","to":"0001-01-01T00:00:00Z","duration":693}]}
+""".utf8))
+check(live.intervals.count == 1 && live.elapsed(at: live.lastStartedAt!.addingTimeInterval(693)) == 693, "real: running timer")
 check(page.included.projects["5"]?.name == "Website" && page.included.tasks["9"]?.name == "Fix nav", "included as map and array")
 
 let fixtures = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "Checks/fixtures")
@@ -222,7 +220,7 @@ check(TeamworkClient.retryDelay(nil) == 60, "no Retry-After waits 60 s")
 check(APIError(status: 429, detail: "").errorDescription?.contains("rate-limiting") == true, "a lasting 429 says so")
 do { try Keychain.check(-25308); check(false, "Keychain propagates errors") } catch {}
 try Keychain.check(0)
-let overlap = TWTimer(id: 8, running: true, duration: 0, lastStartedAt: current, intervals: runs)
+let overlap = TWTimer(id: 8, running: true, duration: 180, lastStartedAt: current, intervals: runs)
 check(overlap.trackedTime(from: t0.addingTimeInterval(30), to: t0.addingTimeInterval(530)) == 180, "idle overlaps finished and running intervals")
 check(overlap.trackedTime(from: t0.addingTimeInterval(70), to: t0.addingTimeInterval(190)) == 0, "idle excludes paused time")
 check(overlap.trackedTime(from: t0.addingTimeInterval(-1000), to: t0.addingTimeInterval(-1)) == 0, "idle excludes time before timer")

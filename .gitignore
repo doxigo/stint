@@ -2,3 +2,5 @@
 build/
 # Local self-signed code-signing identity (private key) made by bundle.sh
 .signing/
+# Design-review renders from the impeccable skill (regenerated on demand)
+.impeccable/review/

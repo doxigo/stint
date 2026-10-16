@@ -4,7 +4,7 @@ final class MockState: @unchecked Sendable {
     let lock = NSLock()
     var mode = "normal"
     var calls: [String] = []
-    /// The last POSTed timelog body.
+    /// The last POSTed or PATCHed timelog body.
     var body: [String: Any]?
     var posts: [Int: Int] = [:]
     var removed: Set<Int> = []
@@ -47,16 +47,28 @@ final class MockState: @unchecked Sendable {
                 if mode == "uncertain" { return (500, "{}", 0) }
                 return (201, "{}", delay ? 0.15 : 0)
             }
+            if verb == "PATCH", path.contains("/time/") { body = Self.json(request); return (200, "{}", 0) }
             if verb == "PUT", path.hasSuffix("/complete.json") {
                 removed.insert(Int(path.split(separator: "/").dropLast().last!)!)
                 return (200, "{}", 0)
             }
-            // Edit: `seconds` replaces the runs with one that long; "ignore-seconds" plays a server that drops it,
-            // "put-fails" one that can't be reached.
+            if verb == "PUT", path.hasSuffix("/pause.json") || path.hasSuffix("/resume.json") {
+                let id = Int(path.split(separator: "/").dropLast().last!)!
+                if path.hasSuffix("/pause.json"), let start = running.removeValue(forKey: id) {
+                    durations[id] = Int(Date.now.timeIntervalSince(start))
+                } else if path.hasSuffix("/resume.json"), running[id] == nil {
+                    running[id] = .now.addingTimeInterval(-Double(durations[id] ?? 600))
+                }
+                return (200, "{}", 0)
+            }
+            // Edit: `seconds` replaces a paused timer's runs with one that long. A running timer's is dropped (what
+            // Teamwork does with it is unknown; Stint pauses first, as its web app does). "ignore-seconds" plays a
+            // server that drops it, "put-fails" one that refuses the edit.
             if verb == "PUT", path.contains("/timers/"), let id = Int(path.split(separator: "/").last!.dropLast(5)) {
                 if mode == "put-fails" { return (503, "{}", 0) }
-                if mode != "ignore-seconds", let seconds = (Self.json(request)?["timer"] as? [String: Any])?["seconds"] as? Int {
-                    if running[id] != nil { running[id] = .now.addingTimeInterval(-Double(seconds)) } else { durations[id] = seconds }
+                if mode != "ignore-seconds", running[id] == nil,
+                   let seconds = (Self.json(request)?["timer"] as? [String: Any])?["seconds"] as? Int {
+                    durations[id] = seconds
                 }
                 return (200, "{}", 0)
             }
@@ -68,9 +80,11 @@ final class MockState: @unchecked Sendable {
             if path.hasSuffix("/timers.json"), mode == "offline-once" { mode = "normal"; return (503, "{}", 0) }
             if path.hasSuffix("/timers.json") {
                 let ids = [1, 2].filter { !removed.contains($0) }
+                // Like Teamwork after a time edit, the runs needn't add up to `duration`: each keeps its first 10 minutes.
+                let runs = ",\"intervals\":[{\"id\":1,\"from\":\"2026-01-01T08:00:00Z\",\"to\":\"2026-01-01T08:10:00Z\",\"duration\":600}]"
                 let rows = ids.map { id in
                     let started = running[id].map { ",\"running\":true,\"lastStartedAt\":\"\($0.formatted(.iso8601))\"" } ?? ",\"running\":false"
-                    return "{\"id\":\(id),\"duration\":\(running[id] == nil ? durations[id] ?? 600 : 0),\"projectId\":\(id == 1 ? 101 : 202)\(started)}"
+                    return "{\"id\":\(id),\"duration\":\(running[id] == nil ? durations[id] ?? 600 : 0),\"projectId\":\(id == 1 ? 101 : 202)\(started)\(runs)}"
                 }.joined(separator: ",")
                 if mode == "late", url.host == "a.teamwork.com", !delayedStarted {
                     delayedStarted = true

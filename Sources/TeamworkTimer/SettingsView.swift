@@ -181,16 +181,18 @@ struct AccountSettings: View {
                     Section {
                         Button("Sign in with Teamwork") { run(inBrowser: true) { try await store.signInWithTeamwork() } }
                             .keyboardShortcut(advanced ? nil : .defaultAction)
-                            .tint(Brand.purpleFill) // filled default button: fixed purple keeps white text readable in Dark Mode
+                            // Filled default button: fixed purple keeps white text readable in Dark Mode. Once it's
+                            // a plain button (Advanced open), its label is purple text, so use the adaptive tint.
+                            .tint(advanced ? Brand.purple : Brand.purpleFill)
                             .disabled(busy)
                     } footer: {
                         Text("Your browser opens Teamwork. Sign in there, then allow it to open Stint.")
                             .foregroundStyle(.secondary)
                     }
-                    Section {
-                        DisclosureGroup("Advanced", isExpanded: $advanced) {
-                            methodPicker
-                        }
+                    // A collapsible section, not a DisclosureGroup: in a grouped Form, a DisclosureGroup put the
+                    // segmented picker in the "Advanced" row and clipped its top edge.
+                    Section("Advanced", isExpanded: $advanced) {
+                        methodPicker
                     }
                 } else {
                     methodPicker
@@ -220,6 +222,7 @@ struct AccountSettings: View {
                                 Text("Your own app needs registering for your site:")
                                 Text("1. Open the Developer Portal and create an app.\n2. Add \(redirect) as a redirect URL (\(appRedirect.absoluteString) works too).\n3. Copy the Client ID and secret from its Credentials tab.")
                                 Link("Open Developer Portal", destination: developerPortal)
+                                    .foregroundStyle(.tint) // the footer's .secondary would draw it as plain text
                                 Text("Just for yourself? An API token is quicker. The secret is stored in your Keychain.")
                             }
                             .foregroundStyle(.secondary)

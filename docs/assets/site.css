@@ -321,8 +321,6 @@ svg.i { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; s
 .panel .durations.art, .panel .pins.art { margin-top: 0; } /* lists follow their intro; spare row height falls below */
 .shot-bleed { margin: 26px calc(-1 * clamp(22px, 3vw, 32px)) calc(-1 * clamp(22px, 3vw, 32px)); padding: 0 0 0 clamp(22px, 3vw, 32px); margin-top: auto; }
 .shot-bleed img { border-radius: 12px 0 0 0; border: 1px solid var(--line); border-right: 0; border-bottom: 0; box-shadow: var(--lift); }
-/* ponytail: Light Mode captures dimmed on dark pages; serve Dark Mode captures via <picture> once they exist */
-@media (prefers-color-scheme: dark) { .shot-bleed img { filter: brightness(0.86); } }
 .shot-bleed.top { padding-top: 26px; }
 
 /* the popover's header and week strip, set into a panel */

@@ -41,10 +41,25 @@ final class Store {
     private(set) var pins: [WorkItem] = []
     private(set) var recents: [WorkItem] = []
     /// Seconds taken off a timer's Teamwork time (an edited or idle-trimmed time Teamwork didn't take; negative adds
-    /// time), applied when it's logged.
+    /// time), applied when it's logged. Dropped once Teamwork's own time is changed (e.g. on the web).
     // ponytail: only a fallback, since edits and idle removal set Teamwork's time; the web app shows Teamwork's time
     // until it's logged.
-    private(set) var adjustments: [Int: TimeInterval] = [:]
+    private(set) var adjustments: [Int: Adjustment] = [:]
+
+    struct Adjustment: Codable, Equatable {
+        var seconds: TimeInterval
+        /// Teamwork's time for the timer when last checked, and when that was.
+        var teamwork: TimeInterval
+        var checked: Date
+
+        /// Still applies if Teamwork's time only ran on since (at most as long as the clock did, with 5 s for
+        /// rounding and clock skew); any other jump means it was changed elsewhere and Teamwork's time wins.
+        // ponytail: an increase smaller than the time since the last check (one poll; longer after sleep) goes unseen.
+        func rebased(on teamwork: TimeInterval, at now: Date) -> Adjustment? {
+            guard teamwork > self.teamwork - 5, teamwork < self.teamwork + now.timeIntervalSince(checked) + 5 else { return nil }
+            return Adjustment(seconds: seconds, teamwork: teamwork, checked: now)
+        }
+    }
     /// Logged today, in seconds (refreshed when the popover or Today view opens).
     private(set) var loggedToday: TimeInterval = 0
     /// Bumped after each successful log so entry lists reload.
@@ -88,6 +103,10 @@ final class Store {
     private var projectNames: [Int: String] = [:]
     private var taskNames: [Int: String] = [:]
     @ObservationIgnored private var poller: Task<Void, Never>?
+    /// Opts out of App Nap, which can stretch an idle menu bar app's 15 s poll well past that (a timer started on
+    /// the web showed 30 s+ late). Idle system sleep still happens.
+    @ObservationIgnored private let awake = ProcessInfo.processInfo.beginActivity(
+        options: .userInitiatedAllowingIdleSystemSleep, reason: "Syncing Teamwork timers")
     @ObservationIgnored let reminders = Reminders()
     private(set) var sessionID = UUID()
     enum LogStatus: String, Codable { case uncertain, posted }
@@ -316,9 +335,12 @@ final class Store {
                 timers.removeAll { $0.id == timer.id }
             }
         }
-        let live = Set(timers.map(\.id))
-        if adjustments.keys.contains(where: { !live.contains($0) }) {
-            adjustments = adjustments.filter { live.contains($0.key) }
+        // Logged or deleted timers drop their adjustment; so do timers whose time was changed elsewhere.
+        if !adjustments.isEmpty {
+            let now = Date.now
+            for (id, adjustment) in adjustments {
+                adjustments[id] = timers.first { $0.id == id }.flatMap { adjustment.rebased(on: $0.elapsed(at: now), at: now) }
+            }
             save(adjustments, "adjustments")
         }
         return true
@@ -411,7 +433,7 @@ final class Store {
 
     /// Time shown and logged for a timer: Teamwork's time with the local adjustment applied.
     func elapsed(_ timer: TWTimer, at now: Date = .now) -> TimeInterval {
-        max(0, timer.elapsed(at: now) - (adjustments[timer.id] ?? 0))
+        max(0, timer.elapsed(at: now) - (adjustments[timer.id]?.seconds ?? 0))
     }
 
 
@@ -595,7 +617,9 @@ final class Store {
                 let now = Date.now, roundTrip = now.timeIntervalSince(sent)
                 let drift = current.elapsed(at: now) - seconds - (current.running ? roundTrip : 0)
                 // A running timer reads up to a round trip short, give or take clock skew.
-                if abs(drift) > roundTrip + 5 { adjustments[timer.id] = drift }
+                if abs(drift) > roundTrip + 5 {
+                    adjustments[timer.id] = Adjustment(seconds: drift, teamwork: current.elapsed(at: now), checked: now)
+                }
             }
             save(adjustments, "adjustments")
         }
@@ -603,11 +627,14 @@ final class Store {
         return ok != nil
     }
 
-    func updateEntry(_ entry: TimeEntry, seconds: TimeInterval, start: Date, description: String, billable: Bool) async -> Bool {
-        let ok: Void? = await perform { try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable) }
+    func updateEntry(_ entry: TimeEntry, target: WorkItem? = nil, seconds: TimeInterval, start: Date, description: String,
+                     billable: Bool) async -> Bool {
+        let ok: Void? = await perform {
+            try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable, target: target)
+        }
         if ok != nil { logRevision += 1 }
         await refreshToday()
-        if ok != nil { showToast("Entry updated") }
+        if ok != nil { showToast(target.map { "Entry moved to \($0.title)" } ?? "Entry updated") }
         return ok != nil
     }
 
@@ -643,11 +670,13 @@ final class Store {
         let seconds = shown - idle + (current.running ? max(0, Date.now.timeIntervalSince(end)) : 0)
         let set = await edit(current, target: nil, description: current.description, billable: current.billable, seconds: seconds)
         guard sessionID == session else { return }
-        if !set {
+        if !set, let latest = timers.first(where: { $0.id == timer.id }) {
             // The request failed (offline or refused): keep it locally until it's logged, so the removal isn't lost.
-            // ponytail: a request that timed out after Teamwork applied it removes the idle time twice; compare
-            // against the refreshed time if that shows up.
-            adjustments[timer.id, default: 0] += idle
+            // If Teamwork applied it after all (a timeout), its time drops at a later refresh and this gives way.
+            // ponytail: unless that refresh was edit()'s own; then the idle time comes off twice.
+            let now = Date.now
+            adjustments[timer.id] = Adjustment(seconds: (adjustments[timer.id]?.seconds ?? 0) + idle,
+                                               teamwork: latest.elapsed(at: now), checked: now)
             save(adjustments, "adjustments")
         }
         if stop, let current = timers.first(where: { $0.id == timer.id }), current.running { await toggle(current) }

@@ -12,7 +12,7 @@ struct TWTimer: Decodable, Identifiable, Equatable, Sendable {
     var description: String
     var running: Bool
     var billable: Bool
-    /// Server-reported seconds; only used when `intervals` is empty.
+    /// Teamwork's time for the finished runs, in seconds; the run in progress counts from `lastStartedAt`.
     var duration: Int
     var lastStartedAt: Date?
     var intervals: [Interval]
@@ -49,19 +49,11 @@ struct TWTimer: Decodable, Identifiable, Equatable, Sendable {
         taskId = try c.decodeIfPresent(Int.self, forKey: .taskId) ?? c.decodeIfPresent(Ref.self, forKey: .task)?.id
     }
 
-    /// Finished runs plus the current one. Built from `intervals` so it doesn't depend on what `duration` counts;
-    /// the run in progress is always measured from `lastStartedAt`.
+    /// Teamwork's time, worked out the way its web app does: `duration` plus the run in progress. Not the sum of
+    /// `intervals`: editing the time (`seconds`, as the web app does) replaces them with one "normalized" run whose
+    /// span needn't match the new time.
     func elapsed(at now: Date = .now) -> TimeInterval {
-        let current = running ? lastStartedAt : nil
-        guard !intervals.isEmpty else {
-            return TimeInterval(duration) + (current.map { max(0, now.timeIntervalSince($0)) } ?? 0)
-        }
-        let finished = intervals.reduce(0.0) { sum, run in
-            // The run in progress may carry a `to` and a `from` a few ms off `lastStartedAt`; skip it by time, not equality.
-            guard let to = run.to, current.map({ run.from < $0.addingTimeInterval(-1) }) ?? true else { return sum }
-            return sum + max(0, to.timeIntervalSince(run.from))
-        }
-        return finished + (current.map { max(0, now.timeIntervalSince($0)) } ?? 0)
+        TimeInterval(duration) + (running ? lastStartedAt.map { max(0, now.timeIntervalSince($0)) } ?? 0 : 0)
     }
 
     func trackedTime(from start: Date, to end: Date) -> TimeInterval {

@@ -44,7 +44,9 @@ struct MiniTimerView: View {
         HStack(spacing: 10) {
             if let timer = store.activeTimer {
                 Button { Task { await store.toggle(timer) } } label: {
-                    Image(systemName: timer.running ? "pause.fill" : "play.fill").frame(width: 16)
+                    Image(systemName: timer.running ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace)) // play and pause morph, as in system media controls
+                        .frame(width: 16, height: 20).contentShape(.rect)
                 }
                 .accessibilityLabel(timer.running ? "Pause" : "Resume")
                 Text(store.title(of: timer)).lineLimit(1)
@@ -52,7 +54,7 @@ struct MiniTimerView: View {
                 TimerText(timer: timer).font(.title3.weight(.medium))
             } else {
                 Button { Task { await store.resumeLast() } } label: {
-                    Image(systemName: "play.fill").frame(width: 16)
+                    Image(systemName: "play.fill").frame(width: 16, height: 20).contentShape(.rect)
                 }
                 .accessibilityLabel("Resume last timer")
                 .disabled(store.recents.isEmpty)
@@ -61,11 +63,12 @@ struct MiniTimerView: View {
             }
             Button { MiniTimer.setShown(false, store: store) } label: {
                 Image(systemName: "xmark").font(.caption.weight(.semibold))
+                    .frame(width: 20, height: 20).contentShape(.rect) // a target, not just the 8-pt glyph
             }
             .foregroundStyle(.secondary)
             .accessibilityLabel("Hide Mini Timer")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(width: 300)

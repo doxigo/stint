@@ -24,7 +24,7 @@ struct ScreenHeader<Trailing: View>: View {
                             .frame(width: 28, height: 28)
                             .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressStyle())
                     .keyboardShortcut(.cancelAction)
                     .help("Back")
                     .accessibilityLabel("Back")
@@ -91,9 +91,11 @@ struct ErrorBanner: View {
             HStack(alignment: .top) {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button { store.errorMessage = nil } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss error")
+                Button { store.errorMessage = nil } label: {
+                    Image(systemName: "xmark").frame(width: 22, height: 22).contentShape(.rect)
+                }
+                .buttonStyle(PressStyle())
+                .accessibilityLabel("Dismiss error")
             }
             .foregroundStyle(.red)
             .padding(.horizontal, Space.l)
@@ -131,13 +133,53 @@ struct ToastOverlay: View {
                 .help("Dismiss")
                 .accessibilityHint("Dismisses this message")
                 .id(toast.id)
-                .transition(reduceMotion ? .opacity
-                            : .opacity.combined(with: .offset(y: edge == .top ? -Space.xs : Space.xs)))
+                // In from its edge and a touch small (never from nothing); out as a quicker plain fade.
+                .transition(.asymmetric(
+                    insertion: reduceMotion ? .opacity
+                        : .opacity.combined(with: .offset(y: edge == .top ? -Space.xs : Space.xs))
+                            .combined(with: .scale(scale: 0.96, anchor: edge == .top ? .top : .bottom)),
+                    removal: .opacity.animation(.easeOut(duration: 0.12))))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: edge == .top ? .top : .bottom)
         .padding(Space.s)
-        .animation(.snappy(duration: 0.2), value: store.toast?.id)
+        .animation(.snappy(duration: 0.22), value: store.toast?.id)
+    }
+}
+
+/// For plain, borderless controls (header Back, week-strip days, mini timer): dims and gives a little under
+/// the pointer, so a click visibly lands. Native bordered buttons draw their own pressed state.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Pressed(configuration: configuration) }
+
+    private struct Pressed: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        let configuration: Configuration
+
+        var body: some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.6 : 1)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
+extension View {
+    /// Digits roll to a new value: a timer ticking over a minute, a total arriving. A crossfade under Reduce Motion.
+    /// ponytail: only for values that change at most once a minute or on new data; a per-second clock would
+    /// animate nonstop (see LiveDot), and totals that change on ← → day steps would animate a keyboard action.
+    func rollingDigits(_ value: some Equatable) -> some View { modifier(RollingDigits(value: value)) }
+}
+
+private struct RollingDigits<Value: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let value: Value
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .opacity : .numericText())
+            .animation(.snappy(duration: 0.3), value: value)
     }
 }
 

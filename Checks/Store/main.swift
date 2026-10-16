@@ -4,8 +4,9 @@ var failed = 0
 @MainActor func check(_ ok: Bool, _ name: String) {
     if !ok { print("FAIL", name); failed += 1 }
 }
-URLCache.shared = URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: nil)
-URLProtocol.registerClass(MockProtocol.self)
+let configuration = URLSessionConfiguration.ephemeral
+configuration.protocolClasses = [MockProtocol.self]
+TeamworkClient.session = URLSession(configuration: configuration)
 let state = MockProtocol.state
 let suite = "TeamworkTimerChecks.\(UUID())"
 let defaults = UserDefaults(suiteName: suite)!
@@ -223,9 +224,12 @@ for mode in ["normal", "ignore-seconds"] {
         await store.refresh()
         check(store.elapsed(timer(1)) == seconds, "\(mode): an edited time survives a refresh")
     }
+    state.lock.withLock { state.calls = [] }
     check(await store.edit(timer(2), target: nil, description: "", billable: false, seconds: 18_900)
           && near(store.elapsed(timer(2)), 18_900) && near(store.elapsed(timer(2), at: .now + 60), 18_960),
           "\(mode): a running 4:57 set to 5:15 carries on from 5:15")
+    check(state.lock.withLock { state.calls.filter { $0.contains(" PUT ") }.map { $0.split(separator: "/").last! } }
+          == ["pause.json?page=1", "2.json?page=1", "resume.json?page=1"], "\(mode): a running timer is paused, set, then resumed")
     check((store.adjustments[2] == nil) == (mode == "normal"), "\(mode): Teamwork keeps the new time, else Stint does")
     await store.removeIdle(from: .now.addingTimeInterval(-120), to: .now, timer: timer(2), session: store.sessionID, stop: false)
     let shown = store.elapsed(timer(2))
@@ -246,9 +250,52 @@ try await store.signIn(site: "idle.teamwork.com", token: "placeholder")
 await store.refresh()
 state.lock.withLock { state.calls = [] }
 await store.removeIdle(from: .now.addingTimeInterval(-600), to: .now, timer: timer(2), session: store.sessionID, stop: true)
-check(near(store.adjustments[2] ?? 0, 600) && near(store.elapsed(timer(2)), 3000), "a failed idle write keeps the removal locally")
-check(state.lock.withLock { state.calls.contains { $0.hasSuffix("PUT /projects/api/v3/me/timers/2/pause.json?page=1") } },
-      "Remove and Stop pauses the timer")
+check(near(store.adjustments[2]?.seconds ?? 0, 600) && near(store.elapsed(timer(2)), 3000), "a failed idle write keeps the removal locally")
+check(state.lock.withLock { state.calls.filter { $0.contains(" PUT ") }.map { $0.split(separator: "/").last! } }
+      == ["pause.json?page=1", "2.json?page=1", "resume.json?page=1", "pause.json?page=1"] && !timer(2).running,
+      "a refused edit resumes the timer, and Remove and Stop pauses it")
+try store.signOut()
+state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
+
+// Time changed in Teamwork's web app (which pauses a running timer, then sends `seconds`) shows at the next refresh
+// (each poll, and when the popover opens), running or paused. An adjustment holds while Teamwork's time only runs on
+// or pauses, and gives way once that time is changed elsewhere.
+let teamwork = { (id: Int, seconds: Int, running: Bool) in
+    state.lock.withLock {
+        if running { state.running[id] = .now.addingTimeInterval(-Double(seconds)) } else { state.running[id] = nil; state.durations[id] = seconds }
+    }
+}
+state.lock.withLock { state.removed = []; state.running = [2: .now.addingTimeInterval(-3600)] }
+try await store.signIn(site: "web.teamwork.com", token: "placeholder")
+await store.refresh()
+teamwork(1, 1500, false)
+await store.refresh()
+check(store.elapsed(timer(1)) == 1500, "a paused timer's time changed on the web shows at the next refresh")
+teamwork(2, 7200, true)
+await store.refresh()
+check(near(store.elapsed(timer(2)), 7200), "a running timer's time changed elsewhere shows at the next refresh")
+teamwork(2, 2700, false)
+await store.refresh()
+check(!timer(2).running && store.elapsed(timer(2)) == 2700, "the web app's edit of a running timer (paused, then set) shows")
+state.lock.withLock { state.mode = "ignore-seconds" }
+check(await store.edit(timer(1), target: nil, description: "", billable: false, seconds: 900)
+      && store.adjustments[1] != nil && store.elapsed(timer(1)) == 900, "an edit Teamwork ignores is kept as an adjustment")
+teamwork(1, 2400, false)
+await store.refresh()
+check(store.adjustments[1] == nil && store.elapsed(timer(1)) == 2400, "a paused timer's web edit replaces its adjustment")
+state.lock.withLock { state.mode = "put-fails" }
+teamwork(2, 3600, true)
+await store.refresh()
+await store.removeIdle(from: .now.addingTimeInterval(-600), to: .now, timer: timer(2), session: store.sessionID, stop: false)
+state.lock.withLock { state.mode = "normal" }
+await store.refresh()
+check(store.adjustments[2] != nil && near(store.elapsed(timer(2)), 3000), "an adjustment holds while Teamwork's time runs on")
+teamwork(2, Int(timer(2).elapsed()), false)
+await store.refresh()
+check(store.adjustments[2] != nil && near(store.elapsed(timer(2)), 3000), "an adjustment holds when the timer is paused")
+teamwork(2, 1200, false)
+await store.refresh()
+check(store.adjustments[2] == nil && store.elapsed(timer(2)) == 1200, "a running timer's web edit replaces its adjustment")
 try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
 
@@ -271,6 +318,7 @@ let sent = { (method: String) in state.lock.withLock { state.calls.filter { $0.c
 state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.durations = [:]; state.running = [:] }
 try await store.signIn(site: "limited.teamwork.com", token: "placeholder")
 await store.refresh()
+while store.weeks.count < 2 { try await Task.sleep(for: .milliseconds(2)) } // the poller's week loads mustn't take the 429
 state.lock.withLock { state.limited = 1; state.retryAfter = "0"; state.calls = [] }
 check(await store.log(timer(1), seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
       && sent("POST") == 2 && state.lock.withLock { state.posts[101] == 1 } && store.errorMessage == nil,
@@ -314,5 +362,10 @@ try await Task.sleep(for: .milliseconds(200))
 _ = try await client.projects(matching: "x")
 check(Date.now.timeIntervalSince(begun) > 0.9, "after a 429 every request waits, not only the refused one")
 _ = try await refused
+try await client.updateEntry(5, seconds: 1800, start: .now, description: "", billable: false,
+                             target: WorkItem(projectId: 202, projectName: "Other"))
+let moved = state.lock.withLock { state.body?["timelog"] as? [String: Any] }
+check(moved?["projectId"] as? Int == 202 && moved?["taskId"] is NSNull && moved?["minutes"] as? Int == 30,
+      "moving an entry to a project sends the project and clears the task")
 print(failed == 0 ? "All store and transport checks passed." : "\(failed) store check(s) failed.")
 exit(failed == 0 ? 0 : 1)

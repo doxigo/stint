@@ -104,7 +104,7 @@ enum Launchpad {
 
     static func exchange(code: String, clientID: String, clientSecret: String?, redirect: URL) async throws -> Credentials {
         let request = try tokenRequest(code: code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await TeamworkClient.session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             throw APIError(status: status, detail: String(decoding: data.prefix(300), as: UTF8.self))
