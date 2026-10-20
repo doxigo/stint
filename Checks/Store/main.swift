@@ -152,7 +152,9 @@ check(await !blockedStore.log(first, seconds: 900, durationEdited: true, descrip
 check(state.lock.withLock { state.posts.isEmpty }, "no POST before durable attempt is written")
 try blockedStore.signOut()
 
-let legacyRecent = WorkItem(projectId: 101, projectName: "Legacy")
+// A project no mock timer uses: remembering a running timer replaces a recent for the same project, which
+// made this flaky when a background refresh remembered timer 1 (project 101) right after sign-in.
+let legacyRecent = WorkItem(projectId: 909, projectName: "Legacy")
 defaults.set(try JSONEncoder().encode([legacyRecent]), forKey: "recents")
 state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.deleteFails = false }
 try await store.signIn(site: "upgrade.teamwork.com", token: "placeholder")
