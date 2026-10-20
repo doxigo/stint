@@ -81,18 +81,20 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${GITHUB_REF_NAME#v}" Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER}" Info.plist
       # Stint's built-in Teamwork app for "Sign in with Teamwork"; without these secrets the release offers an
-      # API token or your own app instead.
+      # API token or your own app instead. The TEAMWORK_REDIRECT variable (optional) picks its redirect; see bundle.sh.
       - name: Sign and notarize
         if: steps.mode.outputs.signed == 'true'
         env:
           TEAMWORK_CLIENT_ID: ${{ secrets.TEAMWORK_CLIENT_ID }}
           TEAMWORK_CLIENT_SECRET: ${{ secrets.TEAMWORK_CLIENT_SECRET }}
+          TEAMWORK_REDIRECT: ${{ vars.TEAMWORK_REDIRECT }}
         run: ./bundle.sh
       - name: Build unsigned release
         if: steps.mode.outputs.signed != 'true'
         env:
           TEAMWORK_CLIENT_ID: ${{ secrets.TEAMWORK_CLIENT_ID }}
           TEAMWORK_CLIENT_SECRET: ${{ secrets.TEAMWORK_CLIENT_SECRET }}
+          TEAMWORK_REDIRECT: ${{ vars.TEAMWORK_REDIRECT }}
         run: UNSIGNED_RELEASE=1 ./bundle.sh
       - name: Release
         env:

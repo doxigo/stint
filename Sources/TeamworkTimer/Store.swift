@@ -139,7 +139,8 @@ final class Store {
     }
 
     init(defaults: UserDefaults = .standard,
-         logDirectory: URL = URL.applicationSupportDirectory.appending(path: "com.doxigo.TeamworkTimer/LogAttempts")) {
+         logDirectory: URL = URL.applicationSupportDirectory
+            .appending(path: "\(Bundle.main.bundleIdentifier ?? "com.doxigo.TeamworkTimer")/LogAttempts")) {
         self.defaults = defaults
         self.logDirectory = logDirectory
         customDayLength = defaults.object(forKey: "customDayLength") as? TimeInterval
@@ -166,10 +167,10 @@ final class Store {
         try await connect(Credentials(kind: .apiToken, site: site, secret: token))
     }
 
-    /// "Sign in with Teamwork": Stint's built-in app, redirecting to `appRedirect`.
+    /// "Sign in with Teamwork": Stint's built-in app, redirecting to its build-time redirect (`builtInRedirect`).
     func signInWithTeamwork() async throws {
         guard let app = Launchpad.builtIn else { throw SignInError("This build of Stint has no built-in Teamwork app.") }
-        try await connect(authorize(clientID: app.id, clientSecret: app.secret, redirect: appRedirect))
+        try await connect(authorize(clientID: app.id, clientSecret: app.secret, redirect: app.redirect))
     }
 
     /// "Use your own app": a client the user registered in their Developer Portal.
@@ -182,15 +183,22 @@ final class Store {
         try await connect(credentials)
     }
 
-    /// Opens Teamwork's sign-in page and exchanges the code it redirects back with.
+    /// Opens Teamwork's sign-in page (in Stint's window for `teamworkRedirect`, else the browser) and exchanges
+    /// the code it redirects back with.
     private func authorize(clientID: String, clientSecret: String?, redirect: URL) async throws -> Credentials {
         let state = try Launchpad.makeState()
-        async let code = redirect == appRedirect ? AppRedirect.waitForCode(state: state)
-                                                 : LoopbackServer.waitForCode(on: redirect, state: state)
-        guard NSWorkspace.shared.open(Launchpad.loginURL(clientID: clientID, redirect: redirect, state: state)) else {
-            throw SignInError("The sign-in page could not be opened.")
+        let login = Launchpad.loginURL(clientID: clientID, redirect: redirect, state: state)
+        let code: String
+        if redirect == teamworkRedirect {
+            code = try await WebSignIn.waitForCode(login: login, redirect: redirect, state: state)
+        } else if redirect == appRedirect {
+            code = try await AppRedirect.waitForCode(login: login, state: state)
+        } else {
+            async let browserCode = LoopbackServer.waitForCode(on: redirect, state: state)
+            guard NSWorkspace.shared.open(login) else { throw SignInError("The sign-in page could not be opened.") }
+            code = try await browserCode
         }
-        let credentials = try await Launchpad.exchange(code: try await code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
+        let credentials = try await Launchpad.exchange(code: code, clientID: clientID, clientSecret: clientSecret, redirect: redirect)
         try Task.checkCancellation()
         NSApp.activate()
         return credentials

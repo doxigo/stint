@@ -78,15 +78,15 @@ import SwiftUI
         let glyph = Self.symbol(timer.running ? "pause.fill" : "play.fill")
         let highlight = defaults.object(forKey: "menuBarHighlight") as? Bool ?? true
         guard style != .icon else {
-            let square = MenuBarBadge.image(.icon, running: timer.running, highlight: highlight, text: "")
+            let square = MenuBarBadge.image(running: timer.running, highlight: highlight, text: "")
             return show(square ?? glyph, title: "", label: state, in: button)
         }
-        // Plain text on the store's clock; see `Store.menuBarNow` for why not TimerText.
+        // Plain text on the store's clock; see `Store.menuBarNow`.
         let elapsed = store.elapsed(timer, at: store.menuBarNow)
         let time = defaults.bool(forKey: "menuBarSeconds") ? elapsed.clock : elapsed.hoursMinutes
         let label = "\(state), \(elapsed.spoken)"
         let text = style == .taskAndTime ? "\(Self.shortened(store.title(of: timer)))  \(time)" : time
-        if let pill = MenuBarBadge.image(style, running: timer.running, highlight: highlight, text: text) {
+        if let pill = MenuBarBadge.image(running: timer.running, highlight: highlight, text: text) {
             show(pill, title: "", label: label, in: button)
         } else {
             // Leading space: the button sets its title flush against the image.

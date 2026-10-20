@@ -193,16 +193,35 @@ for bad in ["stint://oauth/callback?code=abc", "stint://oauth/callback?code=abc&
             "other://oauth/callback?code=abc&state=expected"] {
     check(appCallback(bad).isEmpty, "reject app redirect \(bad)")
 }
-let waiting = Task { try await AppRedirect.waitForCode(state: "expected") }
-await Task.yield()
-AppRedirect.handle(URL(string: "stint://oauth/callback?code=forged&state=wrong")!)
-AppRedirect.handle(URL(string: "stint://oauth/callback?code=abc123&state=expected")!)
-check(try await waiting.value == "abc123", "the app redirect hands over the code for this sign-in only")
-AppRedirect.handle(URL(string: "stint://oauth/callback?code=late&state=expected")!) // nothing pending: ignored
-let denied = Task { try await AppRedirect.waitForCode(state: "expected") }
-await Task.yield()
-AppRedirect.handle(URL(string: "stint://oauth/callback?error=access_denied&state=expected")!)
-do { _ = try await denied.value; check(false, "a refused sign-in fails") } catch { check("\(error.localizedDescription)".contains("access_denied"), "a refused sign-in says why") }
+// The built-in app's redirect (TEAMWORK_REDIRECT): stint:// through a browser sheet unless set to Teamwork's callback.
+for value in [nil, "", "stint://oauth/callback"] {
+    check(builtInRedirect(value) == appRedirect, "the built-in app defaults to the browser (\(value ?? "unset"))")
+}
+check(builtInRedirect("https://www.teamwork.com/callback") == teamworkRedirect, "TEAMWORK_REDIRECT=https://www.teamwork.com/callback signs in in Stint's window")
+func windowCallback(_ text: String) -> [String: String] { callbackQuery(fromURL: URL(string: text)!, redirect: teamworkRedirect, state: "expected") }
+check(windowCallback("https://www.teamwork.com/callback?code=abc123&state=expected")["code"] == "abc123", "the sign-in window reads the code")
+check(windowCallback("https://www.teamwork.com/callback?state=expected&error=access_denied")["error"] == "access_denied", "the sign-in window reads a refusal")
+for bad in ["https://www.teamwork.com/callback?code=abc", "https://www.teamwork.com/callback?code=abc&state=wrong",
+            "https://www.teamwork.com/callback?code=abc&state=expected&code=other", "http://www.teamwork.com/callback?code=abc&state=expected",
+            "https://evil.example/callback?code=abc&state=expected", "https://www.teamwork.com.evil.example/callback?code=abc&state=expected",
+            "https://www.teamwork.com:8443/callback?code=abc&state=expected", "https://www.teamwork.com/callback/x?code=abc&state=expected",
+            "https://user@www.teamwork.com/callback?code=abc&state=expected"] {
+    check(windowCallback(bad).isEmpty, "reject sign-in window callback \(bad)")
+}
+// The window stops every load of the callback, even one that doesn't verify; everything else (SSO hosts too) loads.
+check(isRedirect(URL(string: "https://WWW.Teamwork.com/callback?state=wrong")!, to: teamworkRedirect), "the window catches any callback")
+for other in ["https://www.teamwork.com/launchpad/login?redirect_uri=https://www.teamwork.com/callback", "https://www.teamwork.com/callbacks",
+              "https://login.microsoftonline.com/callback", "https://www.teamwork.com/"] {
+    check(!isRedirect(URL(string: other)!, to: teamworkRedirect), "the window loads \(other)")
+}
+let login = URLComponents(url: Launchpad.loginURL(clientID: "client", redirect: teamworkRedirect, state: "s"), resolvingAgainstBaseURL: false)
+check(login?.host == "www.teamwork.com" && login?.path == "/launchpad/login"
+      && login?.queryItems?.contains(URLQueryItem(name: "redirect_uri", value: "https://www.teamwork.com/callback")) == true,
+      "the sign-in window opens Launchpad with Teamwork's callback")
+// The browser session (ASWebAuthenticationSession) returns the stint:// URL it caught; it's checked by
+// callbackQuery like every other redirect (above): this sign-in's state only, errors passed on.
+check(callbackQuery(fromURL: URL(string: "stint://oauth/callback?error=access_denied&state=expected")!, redirect: appRedirect,
+                    state: "expected")["error"] == "access_denied", "a refused browser sign-in says why")
 func tokenBody(secret: String?) throws -> [String: String]? {
     let request = try Launchpad.tokenRequest(code: "c", clientID: "id", clientSecret: secret, redirect: appRedirect)
     return try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: String]
@@ -227,22 +246,16 @@ check(overlap.trackedTime(from: t0.addingTimeInterval(-1000), to: t0.addingTimeI
 check(Credentials(kind: .apiToken, site: URL(string: "https://a.teamwork.com/")!, secret: "tok").authorization
       == "Basic " + Data("tok:x".utf8).base64EncodedString(), "basic auth header")
 
-let badge = MenuBarBadge.image(.badge, running: true, highlight: false, text: "1:30")!
-check(MenuBarBadge.image(.badge, running: true, highlight: false, text: "1:30") === badge, "menu badge reuses unchanged image")
-check(MenuBarBadge.image(.badge, running: false, highlight: false, text: "1:30") !== badge, "menu badge redraws changed state")
-check(badge.isTemplate && MenuBarBadge.image(.badge, running: false, highlight: true, text: "1:30")!.isTemplate
-      && !MenuBarBadge.image(.badge, running: true, highlight: true, text: "1:30")!.isTemplate,
-      "highlighted badge keeps its brand colour; plain badge follows the menu bar tint")
-for (style, text) in [(MenuBarStyle.taskAndTime, "Fix login  1:30"), (.time, "1:30"), (.icon, "")] {
-    let pill = MenuBarBadge.image(style, running: true, highlight: true, text: text)
-    check(pill?.isTemplate == false, "\(style.rawValue) fills with the brand colour while running")
-    check(MenuBarBadge.image(style, running: true, highlight: true, text: text) === pill, "\(style.rawValue) reuses unchanged image")
-    check(MenuBarBadge.image(style, running: false, highlight: true, text: text) == nil
-          && MenuBarBadge.image(style, running: true, highlight: false, text: text) == nil,
-          "\(style.rawValue) keeps its tinted glyph while paused or unhighlighted")
+for text in ["Fix login  1:30", "1:30", ""] {
+    let pill = MenuBarBadge.image(running: true, highlight: true, text: text)
+    check(pill?.isTemplate == false, "running pill '\(text)' keeps its brand colour")
+    check(MenuBarBadge.image(running: true, highlight: true, text: text) === pill, "running pill '\(text)' reuses unchanged image")
+    check(MenuBarBadge.image(running: false, highlight: true, text: text) == nil
+          && MenuBarBadge.image(running: true, highlight: false, text: text) == nil,
+          "no pill while paused or unhighlighted ('\(text)')")
 }
-check(MenuBarBadge.image(.icon, running: true, highlight: true, text: "")!.size == NSSize(width: 18, height: 18), "icon pill is a square")
-check(MenuBarBadge.image(.taskAndTime, running: true, highlight: true, text: "Fix login  1:30")!.size.width
-      > MenuBarBadge.image(.time, running: true, highlight: true, text: "1:30")!.size.width, "task pill fits the task")
+check(MenuBarBadge.image(running: true, highlight: true, text: "")!.size == NSSize(width: 18, height: 18), "icon pill is a square")
+check(MenuBarBadge.image(running: true, highlight: true, text: "Fix login  1:30")!.size.width
+      > MenuBarBadge.image(running: true, highlight: true, text: "1:30")!.size.width, "task pill fits the task")
 print(failed == 0 ? "All checks passed." : "\(failed) check(s) failed.")
 exit(failed == 0 ? 0 : 1)

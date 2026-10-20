@@ -30,7 +30,7 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     for name in ['xcode-select', 'swift', 'codesign', 'ditto', 'xcrun', 'security', 'hdiutil']:
         (bin_dir / name).symlink_to(stub)
     env = {key: value for key, value in os.environ.items()
-           if key not in ['SIGNING_IDENTITY', 'NOTARY_PROFILE', 'NOTARY_KEYCHAIN', 'FAIL_NOTARY', 'TEAMWORK_CLIENT_ID', 'TEAMWORK_CLIENT_SECRET']}
+           if key not in ['SIGNING_IDENTITY', 'NOTARY_PROFILE', 'NOTARY_KEYCHAIN', 'FAIL_NOTARY', 'TEAMWORK_CLIENT_ID', 'TEAMWORK_CLIENT_SECRET', 'TEAMWORK_REDIRECT']}
     env.update(PATH=str(bin_dir) + os.pathsep + env['PATH'], CI='true')
     for identity, profile in [('', ''), ('ad-hoc', 'profile'), ('Developer ID Application: Fixture (TEST)', '')]:
         run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, SIGNING_IDENTITY=identity, NOTARY_PROFILE=profile), capture_output=True)
@@ -41,11 +41,19 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     assert run.returncode == 0, run.stderr.decode()
     info = plistlib.loads(built.read_bytes())
     assert info.get('TeamworkClientID') == 'id "x"' and 'TeamworkClientSecret' not in info, 'a built-in client ID goes into the built app'
+    assert info.get('TeamworkRedirect') == 'stint://oauth/callback', 'the built-in app defaults to the browser sheet'
     assert 'TeamworkClientID' not in plistlib.loads((root / 'Info.plist').read_bytes()), 'the source Info.plist is left alone'
     (root / 'calls').unlink()
     run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1', TEAMWORK_CLIENT_ID='id', TEAMWORK_CLIENT_SECRET='s'), capture_output=True)
     assert run.returncode == 0, run.stderr.decode()
     assert plistlib.loads(built.read_bytes()).get('TeamworkClientSecret') == 's', 'a built-in client secret goes in when CI has one'
+    (root / 'calls').unlink()
+    run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1', TEAMWORK_CLIENT_ID='id', TEAMWORK_REDIRECT='https://www.teamwork.com/callback'), capture_output=True)
+    assert run.returncode == 0, run.stderr.decode()
+    assert plistlib.loads(built.read_bytes()).get('TeamworkRedirect') == 'https://www.teamwork.com/callback', 'TEAMWORK_REDIRECT picks the sign-in window'
+    shutil.rmtree(root / '.build')
+    run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1', TEAMWORK_CLIENT_ID='id', TEAMWORK_REDIRECT='https://evil.example/callback'), capture_output=True)
+    assert run.returncode != 0 and not (root / '.build').exists(), 'an unknown TEAMWORK_REDIRECT fails before building'
     (root / 'calls').unlink()
     run = subprocess.run(['sh', 'bundle.sh'], cwd=root, env=dict(env, UNSIGNED_RELEASE='1'), capture_output=True)
     assert run.returncode == 0, run.stderr.decode()

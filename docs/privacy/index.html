@@ -78,7 +78,7 @@
         <p>Stint connects to two places, both run by Teamwork.com, and always over HTTPS.</p>
 
         <h3>Your Teamwork site</h3>
-        <p>This is the address you sign in with, such as <code>https://acme.teamwork.com</code>, or the API address that Teamwork gives Stint when you use Teamwork Sign-In. Stint uses Teamwork's API to:</p>
+        <p>This is the address you sign in with, such as <code>https://acme.teamwork.com</code>, or the API address that Teamwork gives Stint when you sign in through Teamwork. Stint uses Teamwork's API to:</p>
         <ul>
           <li>read your profile: your user ID, name, and working hours or day length, which set your daily target;</li>
           <li>read your timers and time entries, and the tasks and projects you can see in Teamwork, including your starred projects and the tasks assigned to you;</li>
@@ -86,9 +86,10 @@
         </ul>
         <p>Every request carries your API token or access token, so Teamwork knows it's you. Stint checks for changes every 15 seconds while you're signed in, so timers started on the web appear in Stint.</p>
 
-        <h3>Teamwork Sign-In, on teamwork.com</h3>
-        <p>Only if you sign in with Teamwork Sign-In: your browser opens Teamwork's sign-in page at <code>www.teamwork.com</code>, and you sign in there. Stint never sees your Teamwork password. Teamwork then sends your browser back to Stint with a one-time code. Stint sends that code, with your Teamwork app's client ID, client secret and redirect address, to Teamwork's Launchpad service at <code>www.teamwork.com</code>, which returns an access token and your site's API address.</p>
-        <p>To receive the code, Stint briefly listens on a local address on your Mac, such as <code>http://localhost:8123</code>. It accepts connections from your Mac only, checks that the code answers the sign-in it started, and stops listening when sign-in finishes, is cancelled, or times out after five minutes.</p>
+        <h3>Signing in through Teamwork, on teamwork.com</h3>
+        <p>Only if you click <strong>Sign in with Teamwork</strong>: Teamwork's login page at <code>www.teamwork.com</code> opens in a sign-in sheet from macOS, which uses your web browser's Teamwork session, so you may already be signed in. If your company uses single sign-on, its login page opens in the same sheet. These pages belong to Teamwork and to your sign-on provider, and load what they load under those companies' privacy policies. Stint doesn't see what you type into them.</p>
+        <p>When you've signed in, Teamwork redirects the sheet to <code>stint://oauth/callback</code> with a one-time code. macOS hands that address straight to Stint and closes the sheet; Stint checks that the code answers the sign-in it started. It sends the code, with Stint's client ID, client secret and that redirect address, to Teamwork's Launchpad service at <code>www.teamwork.com</code>, which returns an access token and your site's API address.</p>
+        <p>If your copy of Stint opens Teamwork's login in a Stint window instead, the window keeps no cookies or website data once it closes, and Stint stops the page at <code>https://www.teamwork.com/callback</code> to take the code. If you sign in with your own Teamwork app, the same happens in your web browser, with that app's client ID and secret. To receive the code, the sign-in sheet hands Stint a <code>stint://</code> address, or Stint briefly listens on a local address on your Mac, such as <code>http://localhost:8123</code>, which accepts connections from your Mac only. Stint checks the code the same way, and stops waiting when sign-in finishes, is cancelled, or times out after five minutes.</p>
 
         <h3>Nothing else</h3>
         <p>Stint makes no other network connections. There's no analytics, telemetry, crash reporting, advertising, tracking, or update check, and Stint contains no third-party code: it's built only with Apple's own frameworks. Reminders are notifications scheduled on your Mac, not sent from a server.</p>
@@ -106,7 +107,7 @@
               <tr>
                 <td>Sign-in</td>
                 <td>macOS Keychain, service <code>com.doxigo.TeamworkTimer</code></td>
-                <td>Your Teamwork site address, and your API token or access token. If you use Teamwork Sign-In with your own Teamwork app, its client secret too.</td>
+                <td>Your Teamwork site address, and your API token or access token. If you sign in with your own Teamwork app, its client secret too.</td>
               </tr>
               <tr>
                 <td>Settings</td>
@@ -143,8 +144,8 @@
         <h2 id="security">Security</h2>
         <ul>
           <li>Your token is kept in the macOS Keychain, which encrypts it and asks you before any other app can read it.</li>
-          <li>Stint connects to Teamwork over HTTPS only, and refuses a Teamwork Sign-In whose API address isn't HTTPS.</li>
-          <li>Teamwork Sign-In uses a random, single-use value to make sure a code really answers the sign-in Stint started.</li>
+          <li>Stint connects to Teamwork over HTTPS only, and refuses a sign-in whose API address isn't HTTPS.</li>
+          <li>Signing in through Teamwork uses a random, single-use value to make sure a code really answers the sign-in Stint started.</li>
           <li>The log receipts folder can be read only by your macOS user account.</li>
         </ul>
       </section>

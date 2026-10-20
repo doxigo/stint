@@ -23,7 +23,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 
 ## Features
 
-- **Menu bar first.** The running timer ticks in the menu bar as time, task and time, a compact badge, or just an icon.
+- **Menu bar first.** The running timer ticks in the menu bar as time, task and time, or just an icon, and turns into a purple pill while it runs.
 - **A popover for the whole day.** Today's timers and logged time, a week strip with daily totals, one-click Start and Pause, and your daily target from your Teamwork working hours (or your own, in Settings).
 - **Pinned tasks.** Pin the work you repeat and start it with ⌘1–⌘9.
 - **Starred projects, Due Today and Recent** at the top of every picker. Search any task or project, or paste a Teamwork task link.
@@ -47,7 +47,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
   </tr>
   <tr>
     <td><img src="docs/screenshots/settings.png" alt="Settings: menu bar style, keyboard shortcut, rounding and working-day target"></td>
-    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="Time badge in the menu bar while a timer runs" width="200"><br><sub>The <b>Time badge</b> menu bar style while a timer runs</sub></td>
+    <td align="center"><img src="docs/screenshots/menubar-badge.png" alt="The menu bar while a timer runs" width="200"><br><sub>The menu bar while a timer runs</sub></td>
   </tr>
 </table>
 
@@ -66,7 +66,7 @@ Requires macOS 26 or later.
 
 Open the window (⌘0 from the popover), then **Sign In** at the bottom of the sidebar.
 
-- **Sign in with Teamwork**: your browser opens Teamwork. Sign in, allow it to open Stint, and you're back in the app. Release builds offer this once Stint's own Teamwork app is registered. Builds without it (including your own builds from source) show the two options below instead.
+- **Sign in with Teamwork**: Teamwork's login page opens in a Stint window. Sign in (single sign-on works too) and the window closes by itself. It keeps no Teamwork cookies afterwards. Release builds offer this once Stint's own Teamwork app is registered. Builds without it (including your own builds from source) show the two options below instead.
 
 Under **Advanced**:
 
@@ -87,7 +87,6 @@ Credentials are stored in your Keychain. Builds signed without an Apple Develope
 | ⌘0 | Open the main window |
 | ⌘, | Settings |
 | ⌘R | Refresh |
-| ⇧⌘M | Floating mini timer |
 
 A global Start/Pause shortcut can be set in Settings.
 
@@ -108,6 +107,7 @@ For public releases, configure these GitHub Actions secrets:
 - `MACOS_CERTIFICATE_PASSWORD`: the exported certificate's password.
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`: the Apple account, app-specific password, and team for notarization.
 - `TEAMWORK_CLIENT_ID` and, optionally, `TEAMWORK_CLIENT_SECRET`: Stint's Developer Portal app, for **Sign in with Teamwork**. `bundle.sh` writes them into the built app only, never the repo. A secret shipped in an app can be read out of it; [DESIGN.md](DESIGN.md#built-in-sign-in) covers that trade-off.
+- `TEAMWORK_REDIRECT` (an Actions *variable*, optional): the redirect registered for that app. `stint://oauth/callback` (the default) signs in through a browser sheet that shares your browser's Teamwork session; `https://www.teamwork.com/callback` signs in inside Stint's own window instead.
 
 For a signed local release, import your Developer ID Application identity, create a profile with `xcrun notarytool store-credentials`, then run:
 
@@ -130,7 +130,7 @@ Sources/TeamworkTimer/
   TeamworkTimerApp.swift   scenes and menu commands
   Store.swift              app state, polling, caching, logging rules
   TeamworkClient.swift     Teamwork v3 API (timers, time logs, tasks, projects)
-  Auth.swift               Keychain, Launchpad OAuth, stint:// and loopback redirects
+  Auth.swift               Keychain, Launchpad OAuth, the sign-in window, stint:// and loopback redirects
   Popover.swift            the menu bar popover
   MainWindow.swift         the library window
   Chrome.swift, Brand.swift  the shared design system and palette

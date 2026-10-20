@@ -10,7 +10,7 @@ This file holds the reverse-engineering findings and the five design deliverable
 
 | # | Decision | Chosen |
 |---|---|---|
-| D1 | **Sign-in.** The old app's OAuth client ID/secret are hard-coded in its bundle; we must not reuse them. | **Both in M1.** A personal API token (Basic auth), and Launchpad OAuth using *your own* registered client (ID/secret entered in Settings, stored in Keychain; loopback redirect). **For Teamwork's integrations directory:** Stint's own client, injected at build time from CI secrets, with a `stint://` redirect. See [Built-in sign-in](#built-in-sign-in). |
+| D1 | **Sign-in.** The old app's OAuth client ID/secret are hard-coded in its bundle; we must not reuse them. | **Both in M1.** A personal API token (Basic auth), and Launchpad OAuth using *your own* registered client (ID/secret entered in Settings, stored in Keychain; loopback redirect). **For Teamwork's integrations directory:** Stint's own client, injected at build time from CI secrets. Teamwork's App Login Flow in a browser sheet (`ASWebAuthenticationSession`) redirecting to `stint://oauth/callback` (or Teamwork's callback in Stint's own window, chosen at build time). See [Built-in sign-in](#built-in-sign-in). |
 | D2 | **Where timers live.** Old app: local-only NeDB, never synced. | **Teamwork v3 server timers** (`/projects/api/v3/me/timers`). |
 | D3 | **Minimum macOS.** | macOS 26 (Tahoe): Liquid Glass comes free from system components; Apple-silicon native. |
 | D4 | **Toolchain.** Only Command Line Tools are installed (Swift 6.4, macOS 27 SDK); no Xcode. | SwiftPM + a small bundling script. Install Xcode later for Icon Composer, notarization and Instruments. |
@@ -102,7 +102,6 @@ Common patterns from menu bar time trackers that fit this app.
 | "Forgot to track" reminder with Start / Continue / Snooze actions, working hours only | The old app doesn't do this |
 | Forgiving duration input: `1:30`, `1.5`, `1,5`, `:45`, `90m`, `1h30` | Fast manual logging |
 | Wrong-day guard ("Start today / Start on Monday") | Prevents misfiled time |
-| Floating mini timer (non-activating, on top, position remembered per display) | Replaces the old compact mode |
 | Opt-in global shortcuts (unset by default, recorder rejects conflicts) | Avoids stealing system shortcuts |
 | Stop-race guard ("timer changed elsewhere, not stopped") | Needed once timers live on the server |
 | Optimistic UI + Undo toasts | Feels instant |
@@ -117,7 +116,6 @@ Common patterns from menu bar time trackers that fit this app.
 **Menu-bar app with a library + detail window.**
 - Daily use happens in the menu bar (start, stop, pinned, recent).
 - A `NavigationSplitView` window handles review and editing: timesheet, starred projects, my tasks.
-- An optional floating mini timer covers screen-share and focus sessions.
 
 ### 3.2 Information architecture
 
@@ -151,7 +149,7 @@ Common patterns from menu bar time trackers that fit this app.
 
 **Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
-**Windows:** one main window and the Mini Timer (`NSPanel`, non-activating).
+**Windows:** one main window, plus the status item's popover. (A floating mini timer was built, then removed on 2026-10-20: the menu bar covers it.)
 
 ### 3.3 Command map
 Every command is defined once (an `AppCommand` enum) and invoked from menus, toolbar, menu bar and context menus alike.
@@ -169,7 +167,6 @@ Built:
 | | Show Sidebar | ⌃⌘S (system) |
 | Toolbar (Today, Week) | Previous / Next, Go to Today | ⌘[ / ⌘], ⌘T |
 | Window | Main Window | ⌘0 |
-| | Floating Mini Timer (optional, off by default; also in Settings) | ⇧⌘M |
 | | Minimize, Zoom, Bring All to Front | standard |
 | Popover | Start pinned items 1–9 | ⌘1 … ⌘9 |
 | Global (opt-in, off by default) | Start/Pause from any app | ⌃⌥⌘T, ⌃⌥⌘P or ⌃⌥Space |
@@ -226,7 +223,7 @@ In the popover, pinned items use `⌘1`–`⌘9` because plain digits would land
 |---|---|---|
 | **M1: replace the old app** | Token and OAuth sign-in, projects/tasks, v3 timers (start/pause/resume/complete/delete), menu bar popover (running timer, pinned, recent, search), Log sheet, starred projects, web-started timers via polling | Built |
 | **M2: daily-driver polish** | Main window (Timers / Today / Week / Pinned / Starred / My Tasks), idle prompt, reminders, launch at login, duration parser, editable log duration, menus and shortcuts | Built |
-| **M3: power features** | Floating mini timer (Liquid Glass capsule, all Spaces, position remembered), global Start/Pause shortcut (presets, off by default) | Built |
+| **M3: power features** | Global Start/Pause shortcut (presets, off by default) | Built |
 
 Deferred:
 - **Inspector:** the Log sheet covers editing.
@@ -270,10 +267,9 @@ Deferred:
 **Still to confirm on the first live run:** whether `time.json`'s `startDate`/`endDate` filter by your local day or by UTC. That decides whether early-morning entries show in Today if you're east of UTC.
 
 **Menu bar:** this is the main timer display, as in Harvest. Settings › General › Menu Bar offers:
-- **Show:** Task and time, Time (the default), Time badge (Harvest's two-tone pill: play/pause segment plus time, drawn as one template image) or Icon only.
+- **Show:** Task and time, Time (the default) or Icon only. While a timer runs (Highlight while running, on by default) each becomes Harvest's two-tone pill: a purple pause segment beside the text on slate; otherwise a template symbol and title the menu bar tints.
 - **Show seconds:** off by default, so it reads like Harvest's "1:23".
 
-The floating mini timer is an optional extra, off by default.
 
 A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-second ticker that runs only while a timer runs:
 - Time-based views (`Text(timerInterval:)`, `TimelineView`) pin the app at 100 % CPU there, measured on macOS 26.
@@ -317,15 +313,23 @@ Teamwork allows about 150 requests a minute and answers 429 beyond that. `Teamwo
 ### Built-in sign-in
 
 For Teamwork's integrations directory, Stint signs in with its own Developer Portal app, not one each user registers.
-- **Redirect:** `stint://oauth/callback`, a private-use scheme in `CFBundleURLTypes`. Teamwork's App Login Flow accepts custom protocols. Its verification checklist asks for https-only redirects, and localhost redirects were sunset for dynamically registered apps on 1 Aug 2026. macOS delivers the redirect as a URL Apple event. `AppDelegate` takes it before SwiftUI would route it to a scene, and `AppRedirect` accepts it only with the sign-in's `state`.
-  - A headless probe confirmed that a SwiftUI-lifecycle app with this handler receives the event and opens no window.
-  - Not yet exercised: the browser → LaunchServices → Stint hop, which needs an installed build and a registered client.
+- **Redirect, chosen at build time:** `TEAMWORK_REDIRECT` (a GitHub Actions variable in CI). `bundle.sh` writes it to the built app's Info.plist as `TeamworkRedirect` and refuses any other value. Register the same one in the Developer Portal.
+  - **`https://www.teamwork.com/callback`:** Teamwork's suggested redirect for the App Login Flow (their API support, Oct 2026). `WebSignIn` (Auth.swift) shows Launchpad's login page in a Stint window (`WKWebView`). Its `decidePolicyFor` cancels any navigation to the callback before it loads, reads `code` and checks `state`, then closes the window. `Launchpad.exchange` follows with the same redirect.
+    - Other hosts load as usual, so single sign-on through the customer's identity provider works. The window's subtitle shows the current host, since there's no address bar. Links that open a new window load in this one.
+    - The web view uses a non-persistent data store: no Teamwork cookies or storage outlive the window, and each sign-in starts signed out.
+    - Closing the window or Settings' **Cancel** cancels. A page that fails to load ends sign-in with its error. The window gives up after 15 minutes, as long as a code lasts. A 4xx from the token exchange says the code wasn't accepted and expires after 15 minutes.
+    - Checked off-screen with a placeholder page, then live against Teamwork's login on 2026-10-20. Google sign-in refuses embedded web views, which is why this is no longer the default.
+  - **`stint://oauth/callback` (default since 2026-10-20):** the browser flow. `AppRedirect` (Auth.swift) runs an `ASWebAuthenticationSession` with a `.customScheme("stint")` callback. Launchpad's login opens in a system browser sheet that shares the user's browser session: one click when already signed in, password autofill, and Google and SSO, which refuse embedded web views. The session catches the redirect itself and hands back the URL; `callbackQuery` accepts it only with the sign-in's `state`. No URL event or LaunchServices hop is involved, so no other app can intercept it.
+    - Its completion handler runs on an XPC queue, so it is `@Sendable`; a main-actor closure crashed there under Swift 6's runtime isolation check.
+    - Teamwork accepted `stint://oauth/callback` as a registered redirect, and sign-in was tested live on 2026-10-20.
+    - `stint` stays registered in `CFBundleURLTypes`; `AppDelegate` swallows stray `stint:` URLs (an old browser tab) before SwiftUI would route them to a scene.
+  - Teamwork's verification checklist asks for https-only redirects, and localhost redirects were sunset for dynamically registered apps on 1 Aug 2026.
 - **Client:** `bundle.sh` writes `TEAMWORK_CLIENT_ID` and, if set, `TEAMWORK_CLIENT_SECRET` into the built app's Info.plist. The release workflow passes them from GitHub secrets of the same names. The repo's Info.plist never has them; `Checks/bundle.py` checks both.
 - **Sign-in screen:** with a built-in client, Account shows one **Sign in with Teamwork** button. **Advanced** reveals API Token and Your Own App. Without one (local builds, forks), it falls back to those two, as before.
 - **Your own app** also accepts `stint://oauth/callback` as its redirect. The loopback default (`http://localhost:8123`) stays, so existing registrations keep working.
 
-**The secret-exposure question (open; Teamwork decides).** Launchpad's token exchange (`POST /launchpad/v1/token.json`) requires `client_secret` and has no PKCE. A desktop app can't keep a secret: anything in a public DMG can be read out of the bundle in minutes (`plutil -p Stint.app/Contents/Info.plist`; obfuscation only slows that down).
-- **What a leaked secret allows:** someone else can run the code exchange as Stint, for example a malicious local app that registers `stint:` too and catches a redirect. They still need the user to sign in and approve. Without PKCE, the private-use scheme is the weak point either way.
+**The secret-exposure question (answered: ship it).** Teamwork's API support confirmed the client secret is simply part of the App Login Flow, with no PKCE or public client, so releases set both GitHub secrets (option 1 below). Launchpad's token exchange (`POST /launchpad/v1/token.json`) requires `client_secret` and has no PKCE. A desktop app can't keep a secret: anything in a public DMG can be read out of the bundle in minutes (`plutil -p Stint.app/Contents/Info.plist`; obfuscation only slows that down).
+- **What a leaked secret allows:** someone else can run the code exchange as Stint, for example another client that shows "Stint" on Teamwork's consent screen. They still need the user to sign in and approve. Both redirects are caught inside Stint (the browser session's own callback, or Stint's window), so another app registering `stint:` can't intercept a Stint sign-in's code.
 - **The code is ready for each answer:**
   1. *Shipping the secret is acceptable* (common for desktop OAuth without PKCE): set both GitHub secrets. Nothing else changes.
   2. *Teamwork treats Stint as a public client* (exchange without a secret, or PKCE added later): set only `TEAMWORK_CLIENT_ID`. The exchange then leaves `client_secret` out. PKCE would add `code_challenge` to `Launchpad.loginURL` and `code_verifier` to `Launchpad.tokenRequest`.

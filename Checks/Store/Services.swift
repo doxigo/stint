@@ -19,7 +19,7 @@ struct SignInError: LocalizedError {
     init(_ message: String) { errorDescription = message }
 }
 enum Launchpad {
-    static let builtIn: (id: String, secret: String?)? = nil
+    static let builtIn: (id: String, secret: String?, redirect: URL)? = nil
     static func makeState() throws -> String { "unused" }
     static func loginURL(clientID: String, redirect: URL, state: String) -> URL { redirect }
     static func exchange(code: String, clientID: String, clientSecret: String?, redirect: URL) async throws -> Credentials { throw SignInError("Unused") }
@@ -28,7 +28,10 @@ enum LoopbackServer {
     static func waitForCode(on redirect: URL, state: String) async throws -> String { throw SignInError("Unused") }
 }
 @MainActor enum AppRedirect {
-    static func waitForCode(state: String) async throws -> String { throw SignInError("Unused") }
+    static func waitForCode(login: URL, state: String) async throws -> String { throw SignInError("Unused") }
+}
+@MainActor enum WebSignIn {
+    static func waitForCode(login: URL, redirect: URL, state: String) async throws -> String { throw SignInError("Unused") }
 }
 @MainActor final class IdleMonitor {
     init(store: Store) {}

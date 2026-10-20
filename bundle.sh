@@ -9,6 +9,13 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     esac
     : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a notarytool Keychain profile}"
 fi
+# The built-in app's redirect (register the same one in the Developer Portal): stint://oauth/callback through a
+# browser sheet (the default), or Teamwork's callback, caught in Stint's own sign-in window.
+redirect="${TEAMWORK_REDIRECT:-stint://oauth/callback}"
+case "$redirect" in
+    https://www.teamwork.com/callback|stint://oauth/callback) ;;
+    *) echo "TEAMWORK_REDIRECT must be stint://oauth/callback (default) or https://www.teamwork.com/callback." >&2; exit 1 ;;
+esac
 if [ -n "${CI:-}" ] && [ -z "${SIGNING_IDENTITY:-}" ] && [ -z "${UNSIGNED_RELEASE:-}" ]; then
     echo "CI app bundles require SIGNING_IDENTITY and NOTARY_PROFILE (or an explicit UNSIGNED_RELEASE=1). No release was produced." >&2
     exit 1
@@ -30,6 +37,7 @@ if [ -n "${TEAMWORK_CLIENT_ID:-}" ]; then
     if [ -n "${TEAMWORK_CLIENT_SECRET:-}" ]; then
         plutil -insert TeamworkClientSecret -string "$TEAMWORK_CLIENT_SECRET" "$app/Contents/Info.plist"
     fi
+    plutil -insert TeamworkRedirect -string "$redirect" "$app/Contents/Info.plist"
 fi
 # Drawn by Resources/make-icon.swift. ponytail: a flat .icns has no Dark/tinted variants on macOS 26;
 # move it to an Icon Composer icon once Xcode is installed.

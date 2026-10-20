@@ -4,70 +4,43 @@ import SwiftUI
 enum MenuBarStyle: String, CaseIterable, Identifiable {
     case taskAndTime = "Task and time"
     case time = "Time"
-    case badge = "Time badge"
     case icon = "Icon only"
     var id: Self { self }
 }
 
-/// Harvest-style badge: a play/pause segment and the time in one rounded pill. Drawn as a template
-/// image, so the menu bar tints it for light and dark wallpapers; while running its segment can take
-/// the brand colour instead, as Harvest's turns orange. Every style takes that running look; only the
-/// Time badge keeps a pill otherwise.
+/// The running pill, as in Harvest: a brand-purple pause segment beside the text on the header's slate (Icon
+/// only: the segment alone). Every style shows it while a timer runs with "Highlight while running" on;
+/// otherwise the status item shows its plain symbol and title, which the menu bar tints.
 @MainActor enum MenuBarBadge {
     private static let segment: CGFloat = 18
-    private static var cached: (running: Bool, highlighted: Bool, text: String, image: NSImage)?
+    private static var cached: (text: String, image: NSImage)?
 
-    /// The pill for `style` showing `text` (empty: the glyph alone, in a square), or nil where the
-    /// style shows the plain glyph and title. `highlight` is the "Highlight while running" setting.
-    static func image(_ style: MenuBarStyle, running: Bool, highlight: Bool, text: String) -> NSImage? {
-        let highlighted = running && highlight
-        guard style == .badge || highlighted else { return nil }
-        if let cached, cached.running == running, cached.highlighted == highlighted, cached.text == text {
-            return cached.image
-        }
-        let ink = highlighted ? NSColor.white : .black
+    /// The pill showing `text` (empty: the segment alone, a square), or nil while paused or when `highlight`
+    /// (the "Highlight while running" setting) is off.
+    static func image(running: Bool, highlight: Bool, text: String) -> NSImage? {
+        guard running && highlight else { return nil }
+        if let cached, cached.text == text { return cached.image }
         let label = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: ink,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white,
         ])
-        let glyph = NSImage(systemSymbolName: running ? "pause.fill" : "play.fill", accessibilityDescription: nil)!
-            .withSymbolConfiguration(.init(pointSize: 8, weight: .black).applying(.init(paletteColors: [ink])))!
+        let glyph = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: nil)!
+            .withSymbolConfiguration(.init(pointSize: 8, weight: .black).applying(.init(paletteColors: [.white])))!
         let height: CGFloat = 18, padding: CGFloat = 6
         let labelSize = label.size()
         let size = NSSize(width: text.isEmpty ? segment : segment + padding + ceil(labelSize.width) + padding, height: height)
         let image = NSImage(size: size, flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).addClip()
-            // Two tones, as in Harvest: the glyph segment a step stronger than the time segment.
-            if highlighted {
-                // As in Harvest, only the play/pause segment takes the colour; the time sits on the header's slate.
-                NSColor(Brand.slate).setFill()
-                rect.fill()
-                NSColor(Brand.purpleFill).setFill()
-                NSRect(x: 0, y: 0, width: segment, height: height).fill()
-            } else {
-                NSColor.black.withAlphaComponent(0.32).setFill()
-                NSRect(x: 0, y: 0, width: segment, height: height).fill()
-                NSColor.black.withAlphaComponent(0.16).setFill()
-                NSRect(x: segment, y: 0, width: size.width - segment, height: height).fill()
-            }
+            NSColor(Brand.slate).setFill()
+            rect.fill()
+            NSColor(Brand.purpleFill).setFill()
+            NSRect(x: 0, y: 0, width: segment, height: height).fill()
             glyph.draw(in: NSRect(x: (segment - glyph.size.width) / 2, y: (height - glyph.size.height) / 2,
                                   width: glyph.size.width, height: glyph.size.height))
             label.draw(at: NSPoint(x: segment + padding, y: (height - labelSize.height) / 2))
             return true
         }
-        image.isTemplate = !highlighted
-        cached = (running, highlighted, text, image)
+        cached = (text, image)
         return image
-    }
-}
-
-/// Always-h:mm:ss clock ("0:37:18"), refreshed by the store's one-second ticker while a timer runs.
-/// The system timer text drops the hour below 60 minutes ("37:18"), which reads like 37 hours.
-struct TimerText: View {
-    @Environment(Store.self) private var store
-    let timer: TWTimer
-
-    var body: some View {
-        Text(store.elapsed(timer, at: store.menuBarNow).clock).monospacedDigit()
     }
 }
 

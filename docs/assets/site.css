@@ -346,7 +346,7 @@ svg.i { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; s
 .pins kbd { margin-left: auto; }
 
 /* menu bar styles strip */
-.styles { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.styles { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .styles li:first-child { grid-column: 1 / -1; }
 .styles li { display: grid; gap: 10px; justify-items: start; padding: 14px; border-radius: 14px; background: var(--slate); color: #fff; }
 .styles li small { color: var(--on-night-muted); font-size: 0.8125rem; }

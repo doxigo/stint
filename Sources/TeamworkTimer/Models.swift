@@ -251,6 +251,20 @@ func workTarget(in interval: DateInterval, days: [Int: TimeInterval], calendar: 
 /// The sign-in redirect the app takes itself: a private-use scheme registered in Info.plist (CFBundleURLTypes).
 let appRedirect = URL(string: "stint://oauth/callback")!
 
+/// Teamwork's suggested redirect for its App Login Flow. The page never loads: Stint's sign-in window
+/// (`WebSignIn`) stops the navigation to it and takes the code.
+let teamworkRedirect = URL(string: "https://www.teamwork.com/callback")!
+
+/// The built-in app's redirect, chosen at build time (TEAMWORK_REDIRECT in bundle.sh): `teamworkRedirect` signs in
+/// in Stint's own window; anything else (the default) is `appRedirect`, through a browser sheet.
+func builtInRedirect(_ value: String?) -> URL { value == teamworkRedirect.absoluteString ? teamworkRedirect : appRedirect }
+
+/// Whether `url` goes to `redirect`: the same scheme, host, port and path, with any query.
+func isRedirect(_ url: URL, to redirect: URL) -> Bool {
+    url.scheme?.lowercased() == redirect.scheme && url.host()?.lowercased() == redirect.host() && url.path() == redirect.path()
+        && url.port == redirect.port && url.user() == nil
+}
+
 /// A redirect sign-in can use: `appRedirect`, or an HTTP loopback address with a port.
 func oauthRedirect(_ input: String) -> URL? {
     if input == appRedirect.absoluteString { return appRedirect }
@@ -273,10 +287,9 @@ func callbackQuery(fromRequest request: String, redirect: URL, state: String) ->
     return verifiedCallback(url.queryItems, state: state)
 }
 
-/// Query items of a redirect to the app itself (`appRedirect`), checked the same way.
+/// Query items of a redirect to the app itself (`appRedirect`) or caught in its window (`teamworkRedirect`), checked the same way.
 func callbackQuery(fromURL url: URL, redirect: URL, state: String) -> [String: String] {
-    guard url.scheme?.lowercased() == redirect.scheme, url.host() == redirect.host(), url.path() == redirect.path(),
-          url.user() == nil, url.port == nil else { return [:] }
+    guard isRedirect(url, to: redirect) else { return [:] }
     return verifiedCallback(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems, state: state)
 }
 

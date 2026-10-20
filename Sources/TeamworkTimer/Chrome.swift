@@ -147,7 +147,7 @@ struct ToastOverlay: View {
     }
 }
 
-/// For plain, borderless controls (header Back, week-strip days, mini timer): dims and gives a little under
+/// For plain, borderless controls (header Back, week-strip days): dims and gives a little under
 /// the pointer, so a click visibly lands. Native bordered buttons draw their own pressed state.
 struct PressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Pressed(configuration: configuration) }

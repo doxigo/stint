@@ -1,6 +1,8 @@
-import Foundation
+import AppKit
+import AuthenticationServices
 import Network
 import Security
+import WebKit
 
 /// Generic-password Keychain items for this app.
 ///
@@ -9,7 +11,8 @@ import Security
 /// password once after each update; signing with an Apple Development certificate would remove that prompt.
 /// Items from the ad-hoc-signed builds (plain `<account>`) are read once, copied to `.v2`, then removed.
 enum Keychain {
-    private static let service = "com.doxigo.TeamworkTimer"
+    /// Per app ID, so a test copy with its own ID has its own sign-in (Stint itself: com.doxigo.TeamworkTimer).
+    private static let service = Bundle.main.bundleIdentifier ?? "com.doxigo.TeamworkTimer"
     private static let suffix = ".v2"
 
     static func get(_ account: String) throws -> Data? {
@@ -71,11 +74,12 @@ struct SignInError: LocalizedError {
 /// Teamwork Launchpad OAuth (authorization-code flow), with Stint's built-in client or the user's own.
 enum Launchpad {
     /// Stint's own Developer Portal app, when this build carries one. bundle.sh writes it into the built app's
-    /// Info.plist from TEAMWORK_CLIENT_ID and TEAMWORK_CLIENT_SECRET (GitHub secrets in CI); the repo never has it.
-    /// The secret is optional: a shipped secret can be read out of the app (see DESIGN.md, "Built-in sign-in").
-    static let builtIn: (id: String, secret: String?)? = {
+    /// Info.plist from TEAMWORK_CLIENT_ID, TEAMWORK_CLIENT_SECRET (GitHub secrets in CI) and TEAMWORK_REDIRECT;
+    /// the repo never has it. The secret is optional: a shipped secret can be read out of the app (see DESIGN.md,
+    /// "Built-in sign-in").
+    static let builtIn: (id: String, secret: String?, redirect: URL)? = {
         let value = { (key: String) in (Bundle.main.object(forInfoDictionaryKey: key) as? String).flatMap { $0.isEmpty ? nil : $0 } }
-        return value("TeamworkClientID").map { ($0, value("TeamworkClientSecret")) }
+        return value("TeamworkClientID").map { ($0, value("TeamworkClientSecret"), builtInRedirect(value("TeamworkRedirect"))) }
     }()
 
     static func makeState() throws -> String {
@@ -107,6 +111,10 @@ enum Launchpad {
         let (data, response) = try await TeamworkClient.session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
+            // A code works once, for 15 minutes; Launchpad refuses an old or reused one.
+            if (400..<500).contains(status), status != 429 {
+                throw SignInError("Teamwork didn't accept the sign-in (\(status)). Sign-in codes expire after 15 minutes; try again.")
+            }
             throw APIError(status: status, detail: String(decoding: data.prefix(300), as: UTF8.self))
         }
         let token = try JSONDecoder().decode(TokenResponse.self, from: data)
@@ -186,36 +194,144 @@ enum LoopbackServer {
     }
 }
 
-/// Catches the browser's redirect to `appRedirect` (`stint://oauth/callback`), which macOS hands the app as a
-/// URL Apple event (`AppDelegate`), and returns the authorization code.
+/// Signs in through `appRedirect` (`stint://oauth/callback`) with Apple's web authentication session: Teamwork's
+/// login opens in a browser sheet that shares the user's browser session (one click when already signed in,
+/// password autofill, Google and SSO, which refuse embedded web views), catches the redirect itself and closes.
 @MainActor enum AppRedirect {
-    private static var pending: (state: String, once: Once<String>)?
+    /// Kept for the session's lifetime: it stops if released, and holds its context provider weakly.
+    private static var active: (session: ASWebAuthenticationSession, anchor: Anchor)?
 
-    static func waitForCode(state: String, timeout: TimeInterval = 300) async throws -> String {
-        let once = Once<String>()
-        pending = (state, once)
-        defer { if pending?.once === once { pending = nil } }
+    static func waitForCode(login: URL, state: String) async throws -> String {
+        let once = Once<URL>()
+        // @Sendable: the session calls back on an XPC queue, not the main thread (a main-actor closure crashed there).
+        let session = ASWebAuthenticationSession(url: login, callback: .customScheme(appRedirect.scheme!)) { @Sendable url, error in
+            if let url {
+                once.resume(returning: url)
+            } else if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
+                once.resume(throwing: CancellationError())
+            } else {
+                once.resume(throwing: error ?? SignInError("Sign-in failed. Try again."))
+            }
+        }
+        let anchor = Anchor()
+        session.presentationContextProvider = anchor
+        session.prefersEphemeralWebBrowserSession = false // reuse the browser's Teamwork sign-in
+        active = (session, anchor)
+        defer { if active?.session === session { active = nil } }
+        let callback = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                once.set(continuation)
+                if !session.start() { once.resume(throwing: SignInError("The sign-in page could not be opened.")) }
+            }
+        } onCancel: {
+            once.resume(throwing: CancellationError())
+            Task { @MainActor in active?.session.cancel() }
+        }
+        let query = callbackQuery(fromURL: callback, redirect: appRedirect, state: state)
+        if let code = query["code"] { return code }
+        throw SignInError(query["error"].map { "Teamwork sign-in failed: \($0)" } ?? "Teamwork didn't return a sign-in code. Try again.")
+    }
+
+    /// The window the browser sheet attaches to: the one the user clicked Sign In in.
+    private final class Anchor: NSObject, ASWebAuthenticationPresentationContextProviding {
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            MainActor.assumeIsolated { NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible } ?? ASPresentationAnchor() }
+        }
+    }
+}
+
+/// Teamwork's login page in a Stint window, for the built-in app's default redirect (`teamworkRedirect`).
+/// The navigation to the redirect is cancelled before it loads and its code taken; every other page loads as
+/// usual, including single sign-on on other hosts. The subtitle shows the page's host. A non-persistent data
+/// store keeps no Teamwork cookies or storage once the window closes, so each sign-in starts signed out.
+@MainActor final class WebSignIn: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
+    let window: NSWindow
+    let webView: WKWebView
+    private let redirect: URL
+    private let state: String
+    private let once = Once<String>()
+
+    /// Opens the window on `login` and waits for the code; closing the window cancels. It stays up to
+    /// 15 minutes, as long as a code lasts (single sign-on and two-factor steps can take a while).
+    static func waitForCode(login: URL, redirect: URL, state: String, timeout: TimeInterval = 15 * 60) async throws -> String {
+        let signIn = WebSignIn(redirect: redirect, state: state)
+        signIn.window.center()
+        signIn.window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        return try await signIn.code(from: login, timeout: timeout)
+    }
+
+    init(redirect: URL, state: String) {
+        self.redirect = redirect
+        self.state = state
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 680),
+                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        super.init()
+        window.title = "Sign in with Teamwork"
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.delegate = self
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+    }
+
+    /// Loads `login` (the window needn't be on screen) and returns the code it redirects with.
+    func code(from login: URL, timeout: TimeInterval) async throws -> String {
+        let once = once
+        defer { window.close() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 once.set(continuation)
                 DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
                     once.resume(throwing: SignInError("Sign-in timed out. Try again."))
                 }
+                webView.load(URLRequest(url: login))
             }
         } onCancel: {
             once.resume(throwing: CancellationError())
         }
     }
 
-    /// Any `stint:` URL lands here; one that doesn't answer the sign-in in progress (wrong state, no sign-in) is ignored.
-    static func handle(_ url: URL) {
-        guard let pending else { return }
-        let query = callbackQuery(fromURL: url, redirect: appRedirect, state: pending.state)
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        guard let url = action.request.url, isRedirect(url, to: redirect) else { return decisionHandler(.allow) }
+        decisionHandler(.cancel)
+        let query = callbackQuery(fromURL: url, redirect: redirect, state: state)
         if let code = query["code"] {
-            pending.once.resume(returning: code)
+            once.resume(returning: code)
         } else if let error = query["error"] {
-            pending.once.resume(throwing: SignInError("Teamwork sign-in failed: \(error)"))
+            once.resume(throwing: SignInError("Teamwork sign-in failed: \(error)"))
+        } else {
+            once.resume(throwing: SignInError("Teamwork's reply didn't match this sign-in. Try again."))
         }
+    }
+
+    /// ponytail: links that open a new window (target="_blank", window.open) load in this one, so a single
+    /// sign-on popup still lands on the redirect. A popup that talks back to its opener would need a real child view.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        webView.load(action.request)
+        return nil
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        window.subtitle = webView.url?.host() ?? ""
+    }
+
+    /// A page that can't load (offline, a bad certificate) ends sign-in with its error. Loads stopped on purpose
+    /// don't: a newer navigation, or the cancelled redirect ("frame load interrupted", WebKit's 102).
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        let error = error as NSError
+        guard !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled),
+              !(error.domain == "WebKitErrorDomain" && error.code == 102) else { return }
+        once.resume(throwing: error)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        once.resume(throwing: CancellationError())
     }
 }
 

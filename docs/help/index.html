@@ -90,24 +90,33 @@
 
       <section>
         <h2 id="sign-in">Sign in</h2>
-        <p>Open Stint's window (click <strong>Open Window</strong> in the popover, or press <kbd>⌘0</kbd>), then click <strong>Sign In</strong> at the bottom of the sidebar. You can sign in with an API token or with Teamwork Sign-In.</p>
+        <p>Open Stint's window (click <strong>Open Window</strong> in the popover, or press <kbd>⌘0</kbd>), then click <strong>Sign In</strong> at the bottom of the sidebar. Click <strong>Sign in with Teamwork</strong>, or open <strong>Advanced</strong> to use an API token or your own Teamwork app.</p>
+
+        <h3 id="teamwork">Sign in with Teamwork</h3>
+        <ol>
+          <li>Click <strong>Sign in with Teamwork</strong>. macOS asks to let Stint use <code>teamwork.com</code> to sign in; click <strong>Continue</strong>. Teamwork's login page opens in a sign-in sheet that uses your browser's Teamwork session, so if you're already signed in on the web, approving is one click.</li>
+          <li>Otherwise sign in as you do on the web: password, Google, or your company's single sign-on.</li>
+          <li>Once Teamwork lets Stint in, the sheet closes by itself and Stint finishes signing in.</li>
+        </ol>
+        <p>To stop, click <strong>Cancel</strong> in the sheet or in Stint. Stint stays signed in until you sign out.</p>
+        <p>If your copy of Stint opens Teamwork's login in a Stint window instead, sign in there; the window closes by itself. Copies without <strong>Sign in with Teamwork</strong>, such as ones you build yourself, offer the two options below.</p>
 
         <h3 id="api-token">API token (quickest)</h3>
         <ol>
           <li>In Teamwork, open your profile and choose <strong>Edit My Details</strong>, then <strong>API &amp; Mobile</strong>. Copy your API token.</li>
-          <li>In Stint, choose <strong>API Token</strong>.</li>
+          <li>In Stint, choose <strong>API Token</strong> (under <strong>Advanced</strong>, if you see it).</li>
           <li>Enter your Teamwork site, for example <code>acme.teamwork.com</code>. You can also paste any address from your site.</li>
           <li>Paste the token and click <strong>Sign In</strong>.</li>
         </ol>
         <p>Your API token acts as you in Teamwork, so treat it like a password. Stint keeps it in your macOS Keychain.</p>
 
-        <h3 id="oauth">Teamwork Sign-In</h3>
-        <p>Teamwork Sign-In signs you in through your browser instead of a token. It needs an app registered for your Teamwork site:</p>
+        <h3 id="oauth">Your own Teamwork app</h3>
+        <p>This signs you in through your browser with an app you register for your Teamwork site:</p>
         <ol>
           <li>Open your site's Developer Portal at <code>https://<var>your-site</var>/developer</code> and create an app.</li>
-          <li>Add <code>http://localhost:8123</code> as a redirect URL. You can use another port, as long as the Redirect URI in Stint is the same.</li>
+          <li>Add <code>http://localhost:8123</code> as a redirect URL. You can use another port, as long as the Redirect URI in Stint is the same. <code>stint://oauth/callback</code> works too.</li>
           <li>Copy the client ID and client secret from the app's Credentials tab.</li>
-          <li>In Stint, choose <strong>Teamwork Sign-In</strong>, paste the client ID and secret, and click <strong>Sign In with Teamwork…</strong></li>
+          <li>In Stint, choose <strong>Your Own App</strong> (under <strong>Advanced</strong>, if you see it), paste the client ID and secret, and click <strong>Sign In with Your App…</strong></li>
           <li>Your browser opens Teamwork's sign-in page. Sign in and approve the app, then return to Stint.</li>
         </ol>
         <p>Stint waits up to five minutes for the browser. Click <strong>Cancel</strong> to stop waiting. The client secret is kept in your Keychain, so you don't need to enter it again.</p>
@@ -125,16 +134,15 @@
             <tbody>
               <tr><td>Time</td><td>The running time. This is the default.</td></tr>
               <tr><td>Task and time</td><td>The task's name and the running time.</td></tr>
-              <tr><td>Time badge</td><td>A compact pill with a play or pause symbol and the time.</td></tr>
-              <tr><td>Icon only</td><td>Just the Stint icon.</td></tr>
+              <tr><td>Icon only</td><td>Just a pause or play symbol.</td></tr>
             </tbody>
           </table>
         </div>
         <figure>
-          <img src="../screenshots/menubar-badge.png" width="400" height="132" loading="lazy" alt="The Time badge in the menu bar, showing a pause symbol and 0:38">
-          <figcaption>The Time badge style while a timer runs.</figcaption>
+          <img src="../screenshots/menubar-badge.png" width="400" height="132" loading="lazy" alt="The menu bar while a timer runs, showing a pause symbol and 0:38">
+          <figcaption>With <strong>Highlight while running</strong> on, every style turns into this pill while a timer runs.</figcaption>
         </figure>
-        <p>Turn on <strong>Show seconds</strong> for a ticking clock, and <strong>Highlight while running</strong> to color the menu bar item while a timer runs. The <strong>Floating mini timer</strong> (<kbd>⇧⌘M</kbd>) keeps a small timer window above your other apps.</p>
+        <p>Turn on <strong>Show seconds</strong> for a ticking clock, and <strong>Highlight while running</strong> to color the menu bar item while a timer runs.</p>
       </section>
 
       <section>
@@ -256,7 +264,7 @@
             <thead><tr><th scope="col">Setting</th><th scope="col">What it does</th></tr></thead>
             <tbody>
               <tr><td>Open at login</td><td>Starts Stint when you log in to your Mac.</td></tr>
-              <tr><td>Menu Bar</td><td>The <a href="#menu-bar">menu bar style</a>, seconds, highlight while running, and the floating mini timer.</td></tr>
+              <tr><td>Menu Bar</td><td>The <a href="#menu-bar">menu bar style</a>, seconds and highlight while running.</td></tr>
               <tr><td>Keyboard</td><td>A shortcut that starts and pauses timers from any app: <kbd>⌃⌥⌘T</kbd>, <kbd>⌃⌥⌘P</kbd> or <kbd>⌃⌥Space</kbd>. Off by default.</td></tr>
               <tr><td>Time Logs</td><td>Rounding, and the step it rounds to.</td></tr>
               <tr><td>Targets</td><td>Your working day. <strong>From Teamwork</strong> uses the working hours in your Teamwork profile, or else your profile's day length. <strong>Custom</strong> sets your own, in 15-minute steps.</td></tr>
@@ -286,7 +294,6 @@
               <tr><td><kbd>⌘0</kbd></td><td>Open the main window</td></tr>
               <tr><td><kbd>⌘,</kbd></td><td>Settings</td></tr>
               <tr><td><kbd>⌘R</kbd></td><td>Refresh from Teamwork</td></tr>
-              <tr><td><kbd>⇧⌘M</kbd></td><td>Show or hide the floating mini timer</td></tr>
             </tbody>
           </table>
         </div>
@@ -304,7 +311,7 @@
         <p>Approve it once in Privacy &amp; Security. See <a href="#unsigned">Open Stint the first time</a>.</p>
 
         <h3>“Teamwork rejected the sign-in (401)”</h3>
-        <p>Your API token was changed or revoked, or your Teamwork Sign-In ended. Sign in again in Settings, under <strong>Account</strong>.</p>
+        <p>Your API token was changed or revoked, or your Teamwork sign-in ended. Sign in again in Settings, under <strong>Account</strong>.</p>
 
         <h3>“Teamwork denied access (403)”</h3>
         <p>Your Teamwork permissions don't allow that action, for example logging time on a project you're not part of. Ask your Teamwork site administrator.</p>
@@ -312,11 +319,18 @@
         <h3>A timer from the web doesn't show up</h3>
         <p>Stint checks Teamwork every 15 seconds, and whenever your Mac wakes. Press <kbd>⌘R</kbd> to refresh now.</p>
 
-        <h3>Teamwork Sign-In doesn't return to Stint</h3>
+        <h3>Sign in with Teamwork shows an error</h3>
+        <ul>
+          <li>If the page couldn't load, check your connection (and your VPN, for single sign-on), then click <strong>Sign in with Teamwork</strong> again.</li>
+          <li>“Teamwork didn't accept the sign-in”: a sign-in works once, within 15 minutes. Click <strong>Sign in with Teamwork</strong> again.</li>
+          <li>If your company signs in with Google, Google may refuse the Stint window. Use an <a href="#api-token">API token</a> instead.</li>
+        </ul>
+
+        <h3>Your own app doesn't return to Stint</h3>
         <ul>
           <li>The redirect URL in your Developer Portal app must match the Redirect URI in Stint exactly, including the port.</li>
           <li>If another app uses that port, pick a different one, such as <code>http://localhost:8124</code>, in both places.</li>
-          <li>Stint stops waiting after five minutes. Click <strong>Sign In with Teamwork…</strong> to try again.</li>
+          <li>Stint stops waiting after five minutes. Click <strong>Sign In with Your App…</strong> to try again.</li>
         </ul>
 
         <h3>Notifications don't appear</h3>

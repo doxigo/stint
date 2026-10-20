@@ -5,7 +5,6 @@ struct GeneralSettings: View {
     @Environment(Store.self) private var store
     @AppStorage("globalShortcut") private var shortcut = HotKey.Preset.none
     @State private var shortcutTaken = false
-    @AppStorage("miniTimer") private var miniTimer = false
     @AppStorage("menuBarStyle") private var menuBarStyle = MenuBarStyle.time
     @AppStorage("menuBarSeconds") private var menuBarSeconds = false
     @AppStorage("menuBarHighlight") private var menuBarHighlight = true
@@ -45,12 +44,10 @@ struct GeneralSettings: View {
                 Toggle("Show seconds", isOn: $menuBarSeconds)
                     .disabled(menuBarStyle == .icon)
                 Toggle("Highlight while running", isOn: $menuBarHighlight)
-                Toggle("Floating mini timer", isOn: $miniTimer)
-                    .onChange(of: miniTimer) { _, shown in MiniTimer.setShown(shown, store: store) }
             } header: {
                 Text("Menu Bar")
             } footer: {
-                Text("The running timer always shows in the menu bar. The floating mini timer is an extra window above other apps (⇧⌘M).")
+                Text("The running timer always shows in the menu bar.")
                     .foregroundStyle(.secondary)
             }
             Section {
@@ -163,6 +160,8 @@ struct AccountSettings: View {
 
     private var busy: Bool { signingIn != nil }
     private var showsMethods: Bool { Launchpad.builtIn == nil || advanced }
+    /// The built-in app signs in in Stint's own window, unless this build redirects to `appRedirect`.
+    private var inWindow: Bool { Launchpad.builtIn?.redirect == teamworkRedirect }
 
     var body: some View {
         Form {
@@ -179,14 +178,15 @@ struct AccountSettings: View {
             } else {
                 if Launchpad.builtIn != nil {
                     Section {
-                        Button("Sign in with Teamwork") { run(inBrowser: true) { try await store.signInWithTeamwork() } }
+                        Button("Sign in with Teamwork") { run(inBrowser: !inWindow) { try await store.signInWithTeamwork() } }
                             .keyboardShortcut(advanced ? nil : .defaultAction)
                             // Filled default button: fixed purple keeps white text readable in Dark Mode. Once it's
                             // a plain button (Advanced open), its label is purple text, so use the adaptive tint.
                             .tint(advanced ? Brand.purple : Brand.purpleFill)
                             .disabled(busy)
                     } footer: {
-                        Text("Your browser opens Teamwork. Sign in there, then allow it to open Stint.")
+                        Text(inWindow ? "Teamwork's sign-in page opens in a Stint window."
+                                      : "Your browser opens Teamwork. Sign in there, then allow it to open Stint.")
                             .foregroundStyle(.secondary)
                     }
                     // A collapsible section, not a DisclosureGroup: in a grouped Form, a DisclosureGroup put the
