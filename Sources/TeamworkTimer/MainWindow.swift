@@ -260,6 +260,7 @@ struct TimersView: View {
                                            description: Text("Start one with ⌘N or from the menu bar, or drop a Teamwork task link here. Timers started on the web show up too."))
                 }
             }
+            .glidingRows(store.timers.map(\.id)) // after the overlay, so "No Timers" fades in with the last row out
             .navigationTitle("Timers")
             .navigationSubtitle(store.timers.isEmpty ? "" : "\(store.timers.count) timer\(store.timers.count == 1 ? "" : "s")")
             .toolbar {
@@ -369,6 +370,8 @@ struct EntriesView: View {
         // A week that arrives from the network fades in over the spinner. Leaving a week (⌘[ ⌘]) and cached
         // weeks stay instant: keyboard steps shouldn't wait on a fade.
         .animation(weekEntries == nil ? nil : .easeOut(duration: 0.2), value: weekEntries == nil)
+        // Timers only: entries also change on ⌘[ ⌘] steps, which stay instant.
+        .glidingRows(store.timers.map(\.id))
         .navigationTitle(title)
         .navigationSubtitle(target.map { "Logged \(total.hoursMinutes) of \($0.hoursMinutes)" } ?? "Logged \(total.hoursMinutes)")
         .toolbar {
@@ -433,6 +436,7 @@ struct PinnedView: View {
                                        description: Text("Right-click a task, project or timer and choose Pin to start it in one click."))
             }
         }
+        .glidingRows(store.pins.map(\.id)) // a dropped pin glides to its slot, its neighbours make room
         .sheet(item: $logging) { item in
             LogWorkView(item: item) { logging = nil }
                 .frame(width: 440)

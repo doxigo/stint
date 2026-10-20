@@ -382,7 +382,7 @@ struct WorkRow: View {
             .accessibilityElement(children: .combine)
         } else {
             Button(action: start) { Label(timer == nil ? "Start" : "Resume", systemImage: "clock") }
-                .buttonStyle(.bordered)
+                .buttonStyle(StartPauseStyle())
                 .accessibilityLabel("\(timer == nil ? "Start" : "Resume") \(item.title)")
         }
     }
@@ -424,11 +424,15 @@ struct TimerRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                if timer.running { LiveDot() }
                 ElapsedText(timer: timer)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(timer.running ? .primary : .secondary)
+                    // Drawn in the gap before the time, centred: as a sibling it took width from the title, which
+                    // rewrapped on every Start and Pause.
+                    .overlay(alignment: .leading) {
+                        if timer.running { LiveDot().offset(x: -(Space.m + 7) / 2) }
+                    }
                 // One column as wide as Start/Pause, so Edit and Log split exactly its width.
                 VStack(spacing: Space.xs) {
                     startPause(title)
@@ -480,12 +484,11 @@ struct TimerRow: View {
     @ViewBuilder private func startPause(_ title: String) -> some View {
         if timer.running {
             Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Pause", systemImage: "pause.fill")) }
-                .buttonStyle(.borderedProminent)
-                .tint(Brand.purpleFill)
+                .buttonStyle(StartPauseStyle(filled: true))
                 .accessibilityLabel("Pause \(title)")
         } else {
             Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Start", systemImage: "clock")) }
-                .buttonStyle(.bordered)
+                .buttonStyle(StartPauseStyle())
                 .accessibilityLabel("Start \(title)")
         }
     }
@@ -531,6 +534,45 @@ struct RowStyle: ButtonStyle {
                 // Lights up at once under the pointer, fades as it leaves: sweeping a list leaves a short trail.
                 .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
                 .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// Native Start / Resume (bordered) and Pause (`filled`) buttons, answering the pointer as the row icons under them
+/// do: Start's label and bezel turn brand purple, Pause's fill deepens to the press purple, at once and fading back
+/// as the pointer leaves; the glyph ticks once, a by-layer bounce on entry. Colour only under Reduce Motion.
+/// ponytail: one-shot symbol effect only; a repeating one redraws the popover nonstop (see LiveDot).
+struct StartPauseStyle: PrimitiveButtonStyle {
+    var filled = false
+
+    func makeBody(configuration: Configuration) -> some View { Control(configuration: configuration, filled: filled) }
+
+    private struct Control: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        let configuration: Configuration
+        let filled: Bool
+        @State private var hovering = false
+        @State private var entries = 0
+
+        var body: some View {
+            Group {
+                if filled {
+                    Button(configuration)
+                        .buttonStyle(.borderedProminent)
+                        .tint(hovering ? Brand.purplePress : Brand.purpleFill)
+                } else {
+                    Button(configuration)
+                        .buttonStyle(.bordered)
+                        .foregroundStyle(hovering ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
+                }
+            }
+            .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
+            .symbolEffect(.bounce.byLayer, value: entries)
+            .symbolEffectsRemoved(reduceMotion)
+            .onHover { inside in
+                hovering = inside
+                if inside { entries += 1 }
+            }
         }
     }
 }

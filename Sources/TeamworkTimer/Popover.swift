@@ -448,7 +448,7 @@ struct DayEntryRow: View {
                 VStack(spacing: Space.xs) {
                     if let item {
                         Button { Task { await store.start(item) } } label: { Label("Start", systemImage: "clock") }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(StartPauseStyle())
                             .help("Start a new timer on this task")
                     }
                     if !entry.locked {

@@ -15,6 +15,8 @@ enum Brand {
     /// tw-purple #6438E0, fixed, for filled controls in both appearances: white labels stay at 6.9:1,
     /// where the lighter Dark Mode purple would drop them to about 3:1.
     static let purpleFill = Color(red: 100 / 255, green: 56 / 255, blue: 224 / 255)
+    /// #5329CF, the filled purple under the pointer (the site's --purple-press).
+    static let purplePress = Color(red: 83 / 255, green: 41 / 255, blue: 207 / 255)
     /// tw-pink #FF22B1. Dots only: the brand rules forbid it on buttons and large text.
     static let pink = Color(red: 1, green: 34 / 255, blue: 177 / 255)
 }

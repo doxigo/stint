@@ -183,6 +183,22 @@ private struct RollingDigits<Value: Equatable>: ViewModifier {
     }
 }
 
+extension View {
+    /// Rows fade in and out and glide into place when `ids` (in order) change: a timer logged or started (running
+    /// timers sort first), a pin dropped in a new slot. Instant under Reduce Motion, where the glide is the motion.
+    /// ponytail: main-window pages only. The popover resizes in one frame (StatusItem), which would clip a glide.
+    func glidingRows(_ ids: some Equatable) -> some View { modifier(GlidingRows(ids: ids)) }
+}
+
+private struct GlidingRows<IDs: Equatable>: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let ids: IDs
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : .snappy(duration: 0.25), value: ids)
+    }
+}
+
 /// Confirms a destructive action in place of the row it affects. Inline rather than a dialog: dialogs
 /// attached to the menu-bar window can close it and lose the action. The row's title stays visible.
 struct ConfirmRow: View {
