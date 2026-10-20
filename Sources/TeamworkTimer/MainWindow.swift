@@ -334,7 +334,7 @@ struct EntriesView: View {
             ForEach(days, id: \.day) { group in
                 Section {
                     ForEach(group.entries) { entry in
-                        DayEntryRow(entry: entry) { editingEntry = entry }
+                        DayEntryRow(entry: entry, onStart: start) { editingEntry = entry }
                         RowDivider()
                     }
                 } header: {
@@ -408,6 +408,11 @@ struct EntriesView: View {
 
     private func step(_ direction: Int) {
         anchor = calendar.date(byAdding: span, value: direction, to: anchor) ?? anchor
+    }
+
+    private func start(_ item: WorkItem) {
+        anchor = calendar.startOfDay(for: .now)
+        Task { await store.start(item) }
     }
 }
 

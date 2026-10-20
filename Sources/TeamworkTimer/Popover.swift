@@ -144,7 +144,7 @@ struct MenuBarView: View {
                     SectionHeader("Logged", trailing: TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60).hoursMinutes)
                 }
                 ForEach(entries) { entry in
-                    DayEntryRow(entry: entry) { screen = .editEntry(entry) }
+                    DayEntryRow(entry: entry, onStart: start) { screen = .editEntry(entry) }
                     RowDivider()
                 }
                 if timers.isEmpty && entries.isEmpty && weekEntries == nil {
@@ -402,22 +402,36 @@ struct PinnedList: View {
 struct DayEntryRow: View {
     @Environment(Store.self) private var store
     let entry: TimeEntry
+    /// Starts a timer now and shows today, where it runs.
+    let onStart: (WorkItem) -> Void
     let onEdit: () -> Void
     @State private var confirmingDelete = false
+    @State private var confirmingStart: WorkItem?
     @State private var hovering = false
 
     var body: some View {
+        let title = entry.taskId.flatMap(store.taskName) ?? entry.projectId.map(store.projectName) ?? "Time entry"
         if confirmingDelete {
-            let title = entry.taskId.flatMap(store.taskName) ?? entry.projectId.map(store.projectName) ?? "Time entry"
             ConfirmRow(question: "Delete this entry from Teamwork?",
                        detail: "\(title) · \(TimeInterval(entry.minutes * 60).hoursMinutes)",
                        action: "Delete", cancel: { confirmingDelete = false }) {
                 confirmingDelete = false
                 Task { await store.deleteEntry(entry) }
             }
+        } else if let item = confirmingStart {
+            ConfirmRow(question: "Start a timer for today?", detail: title, action: "Start Today",
+                       destructive: false, cancel: { confirmingStart = nil }) {
+                confirmingStart = nil
+                onStart(item)
+            }
         } else {
             row
         }
+    }
+
+    /// Timers always run now, so starting from another day's entry asks first.
+    private func start(_ item: WorkItem) {
+        if Calendar.current.isDateInToday(entry.timeLogged ?? .now) { onStart(item) } else { confirmingStart = item }
     }
 
     private var row: some View {
@@ -447,7 +461,7 @@ struct DayEntryRow: View {
                 // One column as wide as Start, so Edit spans it, as Edit and Log do on timer rows.
                 VStack(spacing: Space.xs) {
                     if let item {
-                        Button { Task { await store.start(item) } } label: { Label("Start", systemImage: "clock") }
+                        Button { start(item) } label: { Label("Start", systemImage: "clock") }
                             .buttonStyle(StartPauseStyle())
                             .help("Start a new timer on this task")
                     }
@@ -472,7 +486,7 @@ struct DayEntryRow: View {
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { if !entry.locked { onEdit() } }
         .contextMenu {
-            if let item { Button("Start Timer Again") { Task { await store.start(item) } } }
+            if let item { Button("Start Timer Again") { start(item) } }
             Button("Edit…", action: onEdit).disabled(entry.locked)
             if let item { Button(store.isPinned(item) ? "Unpin" : "Pin") { store.togglePin(item) } }
             if let url = store.webURL(projectId: entry.projectId, taskId: entry.taskId) {
