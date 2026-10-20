@@ -183,22 +183,25 @@ private struct RollingDigits<Value: Equatable>: ViewModifier {
     }
 }
 
-/// Confirms a destructive action in place of the row it affects. Inline rather than a dialog: dialogs
+/// Confirms an action in place of the row it affects. Inline rather than a dialog: dialogs
 /// attached to the menu-bar window can close it and lose the action. The row's title stays visible.
 struct ConfirmRow: View {
     let question: String
     let detail: String
     let action: String
+    /// Red trash by default; a clock in brand purple otherwise.
+    var destructive = true
     let cancel: () -> Void
     let confirm: () -> Void
 
     var body: some View {
+        let tint = destructive ? Color.red : Brand.purple
         HStack(spacing: Space.m) {
-            Image(systemName: "trash")
+            Image(systemName: destructive ? "trash" : "clock")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(tint)
                 .frame(width: 32, height: 32)
-                .background(.red.opacity(0.12), in: .circle)
+                .background(tint.opacity(0.12), in: .circle)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(question).fontWeight(.semibold)
@@ -208,13 +211,13 @@ struct ConfirmRow: View {
             Button("Cancel", action: cancel)
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.cancelAction)
-            Button(action, role: .destructive, action: confirm)
+            Button(action, role: destructive ? .destructive : nil, action: confirm)
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(destructive ? .red : Brand.purpleFill)
         }
         .padding(.horizontal, Space.l)
         .padding(.vertical, Space.m)
-        .background(.red.opacity(0.05))
+        .background(tint.opacity(0.05))
         .accessibilityElement(children: .contain)
     }
 }
