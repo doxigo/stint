@@ -382,7 +382,7 @@ struct WorkRow: View {
             .accessibilityElement(children: .combine)
         } else {
             Button(action: start) { Label(timer == nil ? "Start" : "Resume", systemImage: "clock") }
-                .buttonStyle(StartPauseStyle())
+                .buttonStyle(.bordered) // native, like the Log button beside it
                 .accessibilityLabel("\(timer == nil ? "Start" : "Resume") \(item.title)")
         }
     }
@@ -538,11 +538,10 @@ struct RowStyle: ButtonStyle {
     }
 }
 
-/// Native Start / Resume (bordered) and Pause (`filled`) buttons, answering the pointer as the row icons under them
-/// do: Start's label and bezel turn brand purple, Pause's fill deepens to the press purple, at once and fading back
-/// as the pointer leaves; the glyph ticks once, a by-layer bounce on entry. Colour only under Reduce Motion.
-/// ponytail: one-shot symbol effect only; a repeating one redraws the popover nonstop (see LiveDot).
-struct StartPauseStyle: PrimitiveButtonStyle {
+/// A row's Start (grey) and Pause (`filled`, brand purple), drawn like the Edit and Log chips under them so the
+/// column reads as one control. Under the pointer Start washes brand purple and Pause deepens to the press purple,
+/// easing in and out (the native bezel can't animate a hover); a press gives a little, except under Reduce Motion.
+struct StartPauseStyle: ButtonStyle {
     var filled = false
 
     func makeBody(configuration: Configuration) -> some View { Control(configuration: configuration, filled: filled) }
@@ -552,27 +551,25 @@ struct StartPauseStyle: PrimitiveButtonStyle {
         let configuration: Configuration
         let filled: Bool
         @State private var hovering = false
-        @State private var entries = 0
 
         var body: some View {
-            Group {
-                if filled {
-                    Button(configuration)
-                        .buttonStyle(.borderedProminent)
-                        .tint(hovering ? Brand.purplePress : Brand.purpleFill)
-                } else {
-                    Button(configuration)
-                        .buttonStyle(.bordered)
-                        .foregroundStyle(hovering ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
-                }
-            }
-            .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
-            .symbolEffect(.bounce.byLayer, value: entries)
-            .symbolEffectsRemoved(reduceMotion)
-            .onHover { inside in
-                hovering = inside
-                if inside { entries += 1 }
-            }
+            let active = hovering || configuration.isPressed
+            configuration.label
+                .foregroundStyle(filled ? AnyShapeStyle(.white) : active ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
+                .padding(.horizontal, Space.s)
+                .frame(minHeight: 24) // a regular native button's height, so rows keep theirs
+                .background(fill(active), in: .rect(cornerRadius: 7, style: .continuous))
+                .contentShape(.rect)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.15), value: hovering)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+
+        private func fill(_ active: Bool) -> AnyShapeStyle {
+            if filled { return AnyShapeStyle(active ? Brand.purplePress : Brand.purpleFill) }
+            return active ? AnyShapeStyle(Brand.purple.opacity(configuration.isPressed ? 0.2 : 0.12))
+                          : AnyShapeStyle(.quaternary.opacity(0.6))
         }
     }
 }
