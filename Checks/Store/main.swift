@@ -12,7 +12,7 @@ let suite = "TeamworkTimerChecks.\(UUID())"
 let defaults = UserDefaults(suiteName: suite)!
 let directory = URL.temporaryDirectory.appending(path: suite)
 defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: directory) }
-let store = Store(defaults: defaults, logDirectory: directory)
+let store = Store(defaults: defaults, logDirectory: directory, polls: false)
 try await store.signIn(site: "a.teamwork.com", token: "placeholder")
 await store.refresh()
 let first = store.timers.first { $0.id == 1 }!
@@ -29,7 +29,7 @@ try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.calls = [] }
 try await store.signIn(site: "b.teamwork.com", token: "placeholder")
 await store.refresh()
-while store.weeks.count < 2 { try await Task.sleep(for: .milliseconds(2)) }
+await store.loadWeek(containing: .now) // this week and last
 state.lock.withLock { state.calls = [] }
 check(await store.logAll(drafts) == [1, 2], "second account logs independently")
 check(state.lock.withLock { state.calls.count == 6 }, "two direct logs use four writes and two shared reads")
@@ -143,7 +143,7 @@ check(!store.isSignedIn, "sign-in does not activate unsaved credentials")
 Keychain.failure = nil
 let blockedPath = directory.appending(path: "regular-file")
 try Data().write(to: blockedPath)
-let blockedStore = Store(defaults: defaults, logDirectory: blockedPath)
+let blockedStore = Store(defaults: defaults, logDirectory: blockedPath, polls: false)
 try await blockedStore.signIn(site: "disk.teamwork.com", token: "placeholder")
 await blockedStore.refresh()
 state.lock.withLock { state.posts = [:]; state.removed = [] }
@@ -183,7 +183,7 @@ try store.signOut()
 state.lock.withLock { state.removed = []; state.posts = [:]; state.deleteFails = false; state.delay = true; state.body = nil }
 try await store.signIn(site: "direct.teamwork.com", token: "placeholder")
 await store.refresh()
-while store.weeks.count < 2 { try await Task.sleep(for: .milliseconds(2)) }
+await store.loadWeek(containing: .now) // this week and last
 state.lock.withLock { state.calls = [] }
 let work = WorkItem(projectId: 101, projectName: "Website", taskId: 7, taskName: "Write the spec")
 let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: .now)!
@@ -310,7 +310,7 @@ store.customDayLength = 27_000
 check(store.target(in: day(16)) == 27_000 && store.target(in: day(14)) == nil, "a custom day applies at once, on working days only")
 try store.signOut()
 check(store.target(in: day(16)) == 27_000 && store.target(in: day(17)) == nil, "the custom day outlives sign-out, Monday–Friday")
-check(Store(defaults: defaults, logDirectory: directory).customDayLength == 27_000, "the custom day is remembered")
+check(Store(defaults: defaults, logDirectory: directory, polls: false).customDayLength == 27_000, "the custom day is remembered")
 store.customDayLength = nil
 check(store.target(in: day(16)) == nil && defaults.object(forKey: "customDayLength") == nil, "no target signed out without a custom day")
 
@@ -320,7 +320,7 @@ let sent = { (method: String) in state.lock.withLock { state.calls.filter { $0.c
 state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.durations = [:]; state.running = [:] }
 try await store.signIn(site: "limited.teamwork.com", token: "placeholder")
 await store.refresh()
-while store.weeks.count < 2 { try await Task.sleep(for: .milliseconds(2)) } // the poller's week loads mustn't take the 429
+await store.loadWeek(containing: .now) // this week and last, before the 429 is armed
 state.lock.withLock { state.limited = 1; state.retryAfter = "0"; state.calls = [] }
 check(await store.log(timer(1), seconds: 900, durationEdited: true, description: "", billable: false, markTaskComplete: false)
       && sent("POST") == 2 && state.lock.withLock { state.posts[101] == 1 } && store.errorMessage == nil,

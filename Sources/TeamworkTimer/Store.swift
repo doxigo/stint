@@ -120,6 +120,7 @@ final class Store {
     @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let logDirectory: URL
+    @ObservationIgnored private let polls: Bool
     private var accountKey: String? {
         guard let site, let userId else { return nil }
         return "account.\(site.absoluteString).\(userId)"
@@ -138,11 +139,14 @@ final class Store {
         workTarget(in: interval, days: workingDays(teamwork: teamworkHours, lengthOfDay: teamworkDayLength, custom: customDayLength))
     }
 
+    /// `polls: false` leaves out the background poller (checks drive refreshes themselves, so nothing races them).
     init(defaults: UserDefaults = .standard,
          logDirectory: URL = URL.applicationSupportDirectory
-            .appending(path: "\(Bundle.main.bundleIdentifier ?? "com.doxigo.TeamworkTimer")/LogAttempts")) {
+            .appending(path: "\(Bundle.main.bundleIdentifier ?? "com.doxigo.TeamworkTimer")/LogAttempts"),
+         polls: Bool = true) {
         self.defaults = defaults
         self.logDirectory = logDirectory
+        self.polls = polls
         customDayLength = defaults.object(forKey: "customDayLength") as? TimeInterval
         reminders.store = self
         idle = IdleMonitor(store: self)
@@ -306,6 +310,7 @@ final class Store {
             if waiting { AccessibilityNotification.Announcement(Self.rateLimitStatus).post() }
         }
         site = credentials.site
+        guard polls else { return }
         poller = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
