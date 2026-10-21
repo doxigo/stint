@@ -226,6 +226,7 @@ struct ProjectRow: View {
             }
         }
         .buttonStyle(RowStyle())
+        .runningHighlight(store.timer(for: item)?.running == true)
         .accessibilityHint("Shows the project's tasks")
         .contextMenu {
             Button("Start Timer on Project", action: start)
@@ -256,10 +257,11 @@ struct WorkRow: View {
     var body: some View {
         let pinned = store.isPinned(item)
         let url = store.webURL(projectId: item.projectId, taskId: item.taskId)
+        let running = store.timer(for: item)?.running == true
         Group {
             if startButton {
                 HStack(spacing: Space.s) {
-                    labels(pinned: pinned, url: url)
+                    labels(pinned: pinned, running: running, url: url)
                     startControl
                     // Last, so it lines up down the list whatever Start / Resume / Running takes.
                     if let log {
@@ -276,7 +278,7 @@ struct WorkRow: View {
                 .accessibilityElement(children: .contain)
             } else {
                 HStack(spacing: Space.s) {
-                    labels(pinned: pinned, url: url)
+                    labels(pinned: pinned, running: running, url: url)
                     // Quiet lists: the log and start affordances appear on hover, as on timer rows. Hidden also
                     // means out of the click order; VoiceOver reaches Log through the row's actions.
                     if let log {
@@ -316,6 +318,7 @@ struct WorkRow: View {
                 }
             }
         }
+        .runningHighlight(running)
         .contextMenu {
             Button("Start Timer", action: start)
             if let log { Button("Log Time…", action: log) }
@@ -326,17 +329,17 @@ struct WorkRow: View {
         .accessibilityAction(named: pinned ? "Unpin" : "Pin") { store.togglePin(item) }
     }
 
-    @ViewBuilder private func labels(pinned: Bool, url: URL?) -> some View {
+    @ViewBuilder private func labels(pinned: Bool, running: Bool, url: URL?) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs / 2) {
             TitleLink(title: item.title, url: url).allowsHitTesting(url != nil)
             if showsProject, let subtitle = item.subtitle {
-                Text(subtitle).font(.callout).foregroundStyle(.secondary).lineLimit(1).allowsHitTesting(false)
+                Text(subtitle).font(.callout).foregroundStyle(.rowSecondary(running)).lineLimit(1).allowsHitTesting(false)
             }
         }
         Spacer(minLength: Space.s)
         Group {
             if let shortcut {
-                Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+                Text("⌘\(shortcut)").font(.callout).monospacedDigit().foregroundStyle(.rowSecondary(running))
             } else if pinned && showsPin {
                 Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
             }
@@ -350,7 +353,7 @@ struct WorkRow: View {
         if timer?.running == true {
             HStack(spacing: Space.xs) {
                 LiveDot()
-                Text("Running").foregroundStyle(.secondary)
+                Text("Running").foregroundStyle(.rowSecondary(true))
             }
             .accessibilityElement(children: .combine)
         } else {
@@ -391,8 +394,8 @@ struct TimerRow: View {
         return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
-                if let project { Text(project).foregroundStyle(.secondary).lineLimit(1) }
-                if let notes { Text(notes).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
+                if let project { Text(project).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
+                if let notes { Text(notes).font(.callout).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -431,7 +434,7 @@ struct TimerRow: View {
             }
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.m)
-        .background(timer.running ? Brand.purple.opacity(0.07) : .clear)
+        .runningHighlight(timer.running)
         // Start/Pause settles in (wash, button, live dot) rather than flashing; the row's height doesn't change.
         .animation(.easeOut(duration: 0.2), value: timer.running)
         .contentShape(.rect)
@@ -486,6 +489,25 @@ struct TimerRow: View {
         }
         Divider()
         Button("Discard Timer…", role: .destructive) { confirmingDiscard = true }
+    }
+}
+
+extension View {
+    /// The running timer's row, wherever it's listed: a full-width brand-purple wash with a bar down its leading
+    /// edge, like Harvest's grey running row, so it's found at a glance. Paused rows stay plain. Static: it only
+    /// changes when the timer starts or pauses. Its grey text uses `rowSecondary`.
+    func runningHighlight(_ running: Bool) -> some View {
+        background(running ? Brand.purple.opacity(0.12) : .clear)
+            .overlay(alignment: .leading) {
+                if running { Brand.purple.frame(width: 3).accessibilityHidden(true) }
+            }
+    }
+}
+
+extension ShapeStyle where Self == AnyShapeStyle {
+    /// Grey text on a row, a step darker on the running wash: the system grey is 3.8:1 there (4.5:1 needed).
+    static func rowSecondary(_ running: Bool) -> AnyShapeStyle {
+        running ? AnyShapeStyle(.primary.opacity(0.7)) : AnyShapeStyle(.secondary)
     }
 }
 

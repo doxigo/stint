@@ -1,7 +1,7 @@
 import AppKit
 import UserNotifications
 
-/// "Forgot to track" reminders (opt-in), the alert for a timer left running over 8 hours,
+/// "Forgot to track" reminders (opt-in, until today's target is met), the alert for a timer left running over 8 hours,
 /// and the end-of-day nudge to log what's still on the timers.
 @MainActor
 final class Reminders: NSObject, UNUserNotificationCenterDelegate {
@@ -57,7 +57,11 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         } else if Self.remindersEnabled, Self.isWorkingHours(now), now >= snoozedUntil,
                   now.timeIntervalSince(lastTracked) >= Self.interval {
             lastTracked = now
-            post("reminder", "No timer running", "Start one so today's time gets logged.", category: "reminder")
+            // Quiet once today's hours are in: logged, on Teamwork or here, plus the timers.
+            Task {
+                guard await !store.filledToday(at: now) else { return }
+                post("reminder", "No timer running", "Start one so today's time gets logged.", category: "reminder")
+            }
         }
 
         // Once per weekday, from 17:00: timers left unlogged.

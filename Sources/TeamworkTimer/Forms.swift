@@ -2,6 +2,11 @@ import SwiftUI
 
 // Every form is a full screen in the popover's language: header band, task summary, field rows,
 // action bar. The main window shows the same views as sheets.
+//
+// Return runs the primary action as SwiftUI registered it at an earlier render: the shortcut only picks up a new
+// closure when the button itself changes (its label or enabled state). So actions read what was typed through
+// computed properties, which read @State live, never through `let`s in `body`, or Save sends the time the form
+// opened with.
 
 /// Confirms a log: editable duration ("1:30", "1.5h", "90m") pre-rounded per Settings, description,
 /// billable, mark task complete.
@@ -18,9 +23,9 @@ struct LogView: View {
     @State private var billable = false
     @State private var markComplete = false
     @State private var saving = false
+    private var seconds: TimeInterval? { parseDuration(duration) }
 
     var body: some View {
-        let seconds = parseDuration(duration)
         VStack(spacing: 0) {
             ScreenHeader("Log Time", back: done)
             TaskSummary(title: store.title(of: timer), subtitle: store.subtitle(of: timer),
@@ -88,9 +93,9 @@ struct LogWorkView: View {
     @State private var billable = false
     @State private var markComplete = false
     @State private var saving = false
+    private var seconds: TimeInterval? { parseDuration(duration) }
 
     var body: some View {
-        let seconds = parseDuration(duration)
         let valid = seconds.map { (60...86400).contains($0) } ?? false
         VStack(spacing: 0) {
             ScreenHeader("Log Time", back: done)
@@ -158,11 +163,11 @@ struct EditTimerView: View {
     @State private var description = ""
     @State private var billable = false
     @State private var saving = false
+    private var seconds: TimeInterval? { parseDuration(duration, allowZero: true) }
+    private var timeEdited: Bool { duration != exactDuration }
 
     var body: some View {
         let current = target ?? store.workItem(for: timer)
-        let seconds = parseDuration(duration, allowZero: true)
-        let timeEdited = duration != exactDuration
         // Unchanged, it stays valid even past 24 hours, so a forgotten timer can still be moved.
         let timeValid = !timeEdited || seconds != nil
         VStack(spacing: 0) {
@@ -237,9 +242,9 @@ struct LogAllView: View {
 
     @State private var drafts: [Draft] = []
     @State private var saving = false
+    private var chosen: [Draft] { drafts.filter(\.included) }
 
     var body: some View {
-        let chosen = drafts.filter(\.included)
         let valid = chosen.allSatisfy { (parseDuration($0.duration) ?? 0) >= 60 }
         let total = chosen.compactMap { parseDuration($0.duration) }.reduce(0, +)
         VStack(spacing: 0) {
@@ -403,8 +408,9 @@ struct EditEntryView: View {
         }
     }
 
+    private var seconds: TimeInterval? { parseDuration(duration) }
+
     private var form: some View {
-        let seconds = parseDuration(duration)
         let task = target.map(\.taskName) ?? entry.taskId.flatMap(store.taskName)
         let project = target?.projectName ?? entry.projectId.map(store.projectName)
         return VStack(spacing: 0) {

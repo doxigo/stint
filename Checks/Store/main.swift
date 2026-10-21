@@ -314,6 +314,21 @@ check(Store(defaults: defaults, logDirectory: directory, polls: false).customDay
 store.customDayLength = nil
 check(store.target(in: day(16)) == nil && defaults.object(forKey: "customDayLength") == nil, "no target signed out without a custom day")
 
+// "No timer running" stays quiet once today's logged time (fetched, so the web's counts) plus the timers' meets
+// the target; below it, or on a day without one, it reminds as before.
+state.lock.withLock { state.removed = []; state.loggedMinutes = 430 }
+try await store.signIn(site: "filled.teamwork.com", token: "placeholder")
+await store.refresh() // two paused timers, 0:10 each
+let tenAM = { (number: Int) in day(number).start.addingTimeInterval(10 * 3600) }
+check(await store.filledToday(at: tenAM(15)) && store.loggedToday == 25_800,
+      "7:10 logged and 0:20 on timers fill a 7:30 day: no reminder")
+state.lock.withLock { state.loggedMinutes = 420 }
+check(await !store.filledToday(at: tenAM(15)) && store.loggedToday == 25_200, "below the target: the reminder comes")
+state.lock.withLock { state.loggedMinutes = 600 }
+check(await !store.filledToday(at: tenAM(14)), "a day without a target: the reminder comes as before")
+try store.signOut()
+state.lock.withLock { state.loggedMinutes = 0 }
+
 // Rate limiting (429): Teamwork refused the request unprocessed, so it's sent again after Retry-After (else 60 s),
 // up to 3 times, with a calm status meanwhile. A log's receipt still guards against any other failure.
 let sent = { (method: String) in state.lock.withLock { state.calls.filter { $0.contains("\(method) ") }.count } }

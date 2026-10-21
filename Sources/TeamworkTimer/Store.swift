@@ -368,6 +368,15 @@ final class Store {
         loggedToday = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
     }
 
+    /// Whether today's logged time plus the timers' (the popover header's total) reaches today's target.
+    /// Fetches today's entries first, so a day filled on the web counts; false without a target or a fetch.
+    func filledToday(at now: Date = .now) async -> Bool {
+        guard let target = target(in: Calendar.current.dateInterval(of: .day, for: now)!),
+              let entries = await timeEntries(from: now, to: now) else { return false }
+        loggedToday = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
+        return loggedToday + timers.reduce(0) { $0 + elapsed($1, at: now) } >= target
+    }
+
     /// Reloads the week containing `date`, then fetches the weeks either side that aren't cached yet
     /// (never future ones), so stepping through days and weeks shows totals without waiting.
     func loadWeek(containing date: Date) async {

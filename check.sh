@@ -18,4 +18,9 @@ xcrun swiftc -swift-version 6 \
     "$src/Models.swift" "$src/TeamworkClient.swift" "$src/Store.swift" \
     Checks/Store/Services.swift Checks/Store/Transport.swift Checks/Store/main.swift -o "$out/store-checks"
 "$out/store-checks"
+xcrun swiftc -swift-version 6 \
+    "$src/Models.swift" "$src/TeamworkClient.swift" "$src/Store.swift" "$src/Brand.swift" "$src/Chrome.swift" \
+    "$src/MenuBarView.swift" "$src/Forms.swift" Checks/Store/Services.swift Checks/Store/Transport.swift \
+    Checks/Forms/main.swift -o "$out/form-checks"
+"$out/form-checks"
 python3 Checks/bundle.py

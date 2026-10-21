@@ -19,6 +19,8 @@ final class MockState: @unchecked Sendable {
     /// The next `limited` requests get a 429, with this `Retry-After` header (nil leaves it out).
     var limited = 0
     var retryAfter: String? = "0"
+    /// Minutes in the one entry a time list returns (0: none).
+    var loggedMinutes = 0
     /// URLSession hands protocols the body as a stream.
     static func json(_ request: URLRequest) -> [String: Any]? {
         guard let stream = request.httpBodyStream else { return nil }
@@ -102,7 +104,10 @@ final class MockState: @unchecked Sendable {
                     return (200, "{\(meta),\"timelogs\":[\(rows)],\"included\":{\"projects\":{\"\(number)\":{\"id\":\(number),\"name\":\"P\(number)\"}}}}", 0)
                 }
             }
-            if path.hasSuffix("/time.json") { return (200, "{\"timelogs\":[],\"included\":{}}", 0) }
+            if path.hasSuffix("/time.json") {
+                let rows = loggedMinutes > 0 ? "{\"id\":1,\"minutes\":\(loggedMinutes),\"timeLogged\":\"2026-10-15T09:00:00Z\"}" : ""
+                return (200, "{\"timelogs\":[\(rows)],\"included\":{}}", 0)
+            }
             if path.hasSuffix("/projects.json") { return (200, "{\"projects\":[]}", 0) }
             return (200, "{}", 0)
         }

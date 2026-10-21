@@ -114,7 +114,7 @@ struct GeneralSettings: View {
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("Reminders come every 30 minutes on weekdays, 9:00–17:00, after you last tracked time. The end-of-day reminder comes once on weekdays from 17:00 if timers are left, with Log All.")
+                Text("Reminders come every 30 minutes on weekdays, 9:00–17:00, after you last tracked time, until today's working hours are in. The end-of-day reminder comes once on weekdays from 17:00 if timers are left, with Log All.")
                     .foregroundStyle(.secondary)
             }
             .onChange(of: remindersEnabled || longTimerAlert || endOfDayNudge) { _, on in
