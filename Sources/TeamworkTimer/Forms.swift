@@ -89,6 +89,7 @@ struct LogWorkView: View {
     let done: () -> Void
     @State private var duration = ""
     @State private var day = Date.now
+    @State private var choosingDay = false
     @State private var description = ""
     @State private var billable = false
     @State private var markComplete = false
@@ -106,8 +107,12 @@ struct LogWorkView: View {
                 DurationField(text: $duration)
             }
             RowDivider()
-            FieldRow(label: "Date") {
-                DatePicker("Date", selection: $day, in: ...Date.now, displayedComponents: .date).labelsHidden()
+            FieldRow(label: "Date") { DayButton(date: day, open: $choosingDay) }
+            if choosingDay {
+                MonthCalendar(date: $day, latest: .now) { choosingDay = false }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, Space.l)
+                    .padding(.bottom, Space.s)
             }
             RowDivider()
             NotesRow(text: $description)
@@ -374,13 +379,16 @@ private struct LogRecovery: View {
     }
 }
 
-/// Edits a logged entry: task, duration, start, description, billable.
+/// Edits a logged entry, laid out after Harvest's edit form: the task as a field (click to change it), notes beside
+/// a large duration, then the day, start time and billable on one line.
 struct EditEntryView: View {
     @Environment(Store.self) private var store
+    @Environment(\.openURL) private var openURL
     let entry: TimeEntry
     let done: () -> Void
     @State private var target: WorkItem?
     @State private var choosing = false
+    @State private var choosingDay = false
     @State private var duration = ""
     @State private var start = Date.now
     @State private var description = ""
@@ -413,28 +421,72 @@ struct EditEntryView: View {
     private var form: some View {
         let task = target.map(\.taskName) ?? entry.taskId.flatMap(store.taskName)
         let project = target?.projectName ?? entry.projectId.map(store.projectName)
+        let url = store.webURL(projectId: target?.projectId ?? entry.projectId, taskId: target.map(\.taskId) ?? entry.taskId)
+        let end = seconds.map { start.addingTimeInterval($0) }
         return VStack(spacing: 0) {
-            ScreenHeader("Edit Entry", back: done)
-            TaskSummary(title: task ?? project ?? "Time entry", subtitle: task == nil ? nil : project,
-                        url: store.webURL(projectId: target?.projectId ?? entry.projectId,
-                                          taskId: target.map(\.taskId) ?? entry.taskId)) {
-                Button("Change…") { choosing = true }
-                    .help("Move this entry to another task or project")
+            ScreenHeader(title: "Edit Entry", back: done) {
+                if let url {
+                    Button { openURL(url) } label: {
+                        Image(systemName: "arrow.up.right")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(PressStyle())
+                    .help("Open in Teamwork")
+                    .accessibilityLabel("Open in Teamwork")
+                }
             }
-            Divider()
-            FieldRow(label: "Duration",
-                     note: (seconds ?? 0) < 60 ? "Enter at least 1 minute, like 1:30, 1.5h or 90m." : nil,
-                     noteIsError: true) {
-                DurationField(text: $duration)
+            VStack(alignment: .leading, spacing: Space.s) {
+                Button { choosing = true } label: {
+                    HStack(spacing: Space.s) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if task != nil, let project {
+                                Text(project).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Text(task ?? project ?? "Time entry").fontWeight(.semibold).lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.leading)
+                }
+                .buttonStyle(FieldButtonStyle())
+                .help("Move this entry to another task or project")
+                .accessibilityLabel("Task")
+                .accessibilityValue([task, project].compactMap(\.self).joined(separator: ", "))
+                .accessibilityHint("Chooses another task or project")
+                HStack(alignment: .top, spacing: Space.s) {
+                    TextField("Description", text: $description, prompt: Text("Add a description"), axis: .vertical)
+                        .lineLimit(2...6)
+                        .filledField()
+                    DurationField(text: $duration, large: true, invalid: (seconds ?? 0) < 60)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                if (seconds ?? 0) < 60 {
+                    Text("Enter at least 1 minute, like 1:30, 1.5h or 90m.").font(.callout).foregroundStyle(.red)
+                }
+                HStack(spacing: Space.xs) {
+                    DayButton(date: start, open: $choosingDay)
+                    TimeField(date: $start)
+                    if let end, (seconds ?? 0) >= 60 {
+                        // Where the entry ends, so a changed start or duration shows its span.
+                        Text("– \(end.formatted(date: .omitted, time: .shortened))")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Ends \(end.formatted(date: .omitted, time: .shortened))")
+                    }
+                    Spacer(minLength: Space.s)
+                    Toggle("Billable", isOn: $billable).toggleStyle(.switch).fixedSize()
+                }
+                if choosingDay {
+                    MonthCalendar(date: $start) { choosingDay = false }
+                }
             }
-            RowDivider()
-            FieldRow(label: "Start") {
-                DatePicker("Start", selection: $start).labelsHidden()
-            }
-            RowDivider()
-            NotesRow(text: $description)
-            RowDivider()
-            FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
+            .padding(.horizontal, Space.l)
+            .padding(.vertical, Space.m)
             ActionBar {
                 Button("Cancel", action: done)
                 Spacer()
@@ -456,15 +508,240 @@ struct EditEntryView: View {
     }
 }
 
+/// The day of `date` as a field that says it in words ("Today", "Yesterday", "Mon 19 Oct"), opening and closing a
+/// `MonthCalendar` the form places under it. Inline rather than a popover: a second window over the menu-bar
+/// popover takes the focus, and the popover closes when it loses it.
+struct DayButton: View {
+    let date: Date
+    @Binding var open: Bool
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            Label {
+                Text(Self.name(date))
+            } icon: {
+                Image(systemName: "calendar").foregroundStyle(Brand.purple)
+            }
+        }
+        .buttonStyle(FieldButtonStyle(open: open))
+        .help(open ? "Close the calendar" : "Choose the day")
+        .accessibilityLabel("Day")
+        .accessibilityValue(date.formatted(date: .complete, time: .omitted))
+    }
+
+    static func name(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
+        return calendar.isDate(date, equalTo: .now, toGranularity: .year)
+            ? date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+            : date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+}
+
+/// A month to pick a day from, drawn like the week strip: the day in a brand-purple circle, today in purple, a faint
+/// circle under the pointer. A click or Today picks and closes; ← → ↑ ↓ move the day while it's open. Picking keeps
+/// `date`'s time of day. Days after `latest` can't be picked.
+struct MonthCalendar: View {
+    @Binding var date: Date
+    var latest: Date?
+    let close: () -> Void
+    /// The first of the month shown.
+    @State private var month = Date.now
+    @FocusState private var focused: Bool
+    private var calendar: Calendar { .current }
+
+    var body: some View {
+        let first = calendar.dateInterval(of: .weekOfYear, for: month)!.start
+        // Always six weeks, so the panel keeps its height from month to month.
+        let days = (0..<42).compactMap { calendar.date(byAdding: .day, value: $0, to: first) }
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let weekdays = (0..<7).map { symbols[($0 + calendar.firstWeekday - 1) % 7] }
+        VStack(spacing: Space.xs) {
+            HStack(spacing: Space.xxs) {
+                Text(month.formatted(.dateTime.month(.wide).year())).fontWeight(.semibold)
+                Spacer()
+                Button("Today") { pick(.now) }
+                    .foregroundStyle(Brand.purple)
+                    .fontWeight(.medium)
+                    .padding(.trailing, Space.xxs)
+                Button { show(-1) } label: { chevron("chevron.left") }
+                    .help("Previous month")
+                    .accessibilityLabel("Previous month")
+                Button { show(1) } label: { chevron("chevron.right") }
+                    .help("Next month")
+                    .accessibilityLabel("Next month")
+                    .disabled(latest.map { calendar.date(byAdding: .month, value: 1, to: month)! > $0 } ?? false)
+            }
+            .buttonStyle(PressStyle())
+            Grid(horizontalSpacing: Space.xxs, verticalSpacing: 2) {
+                GridRow {
+                    ForEach(weekdays.indices, id: \.self) { index in
+                        Text(weekdays[index]).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityHidden(true)
+                ForEach(0..<6, id: \.self) { week in
+                    GridRow {
+                        ForEach(days[week * 7 ..< week * 7 + 7], id: \.self) { day in
+                            CalendarDay(day: day, selected: calendar.isDate(day, inSameDayAs: date),
+                                        inMonth: calendar.isDate(day, equalTo: month, toGranularity: .month),
+                                        enabled: allowed(day)) { pick(day) }
+                        }
+                    }
+                }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false) // as wide as the grid; the header's Spacer takes the rest
+        .padding(Space.s)
+        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: 10))
+        // Takes the keys while open, so the arrows move the day; the selected circle shows where.
+        .focusable(interactions: .edit)
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            let step = switch press.key {
+            case .leftArrow: -1
+            case .rightArrow: 1
+            case .upArrow: -7
+            default: 7
+            }
+            if let day = calendar.date(byAdding: .day, value: step, to: date), allowed(day) { set(day) }
+            return .handled
+        }
+        .onAppear {
+            month = calendar.dateInterval(of: .month, for: date)!.start
+            focused = true
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Calendar")
+    }
+
+    private func chevron(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 24, height: 24)
+            .contentShape(.rect)
+    }
+
+    private func allowed(_ day: Date) -> Bool {
+        latest.map { calendar.startOfDay(for: day) <= $0 } ?? true
+    }
+
+    private func show(_ months: Int) {
+        month = calendar.date(byAdding: .month, value: months, to: month) ?? month
+    }
+
+    /// Moves `date` to `day`, keeping its time of day, and shows that day's month.
+    private func set(_ day: Date) {
+        let time = calendar.dateComponents([.hour, .minute, .second], from: date)
+        date = calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: time.second ?? 0, of: day) ?? day
+        month = calendar.dateInterval(of: .month, for: day)!.start
+    }
+
+    private func pick(_ day: Date) {
+        set(day)
+        close()
+    }
+}
+
+private struct CalendarDay: View {
+    let day: Date
+    let selected: Bool
+    let inMonth: Bool
+    let enabled: Bool
+    let pick: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let today = Calendar.current.isDateInToday(day)
+        Button(action: pick) {
+            Text(day.formatted(.dateTime.day()))
+                .monospacedDigit()
+                .fontWeight(selected || today ? .semibold : .regular)
+                .foregroundStyle(selected ? AnyShapeStyle(.white) : today ? AnyShapeStyle(Brand.purple)
+                                 : inMonth ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
+                .frame(width: 32, height: 30)
+                .background(selected ? AnyShapeStyle(Brand.purpleFill) : AnyShapeStyle(Brand.purple.opacity(hovering ? 0.1 : 0)),
+                            in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .onHover { hovering = $0 && enabled }
+        .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
+        .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The time of day in `date` as a borderless AppKit date picker in the filled-field look: click the hour or the
+/// minute and type, or step it with ↑ ↓. It follows the system's 12- or 24-hour clock.
+struct TimeField: View {
+    @Binding var date: Date
+
+    var body: some View {
+        TimeInput(date: $date)
+            .fixedSize()
+            .padding(.vertical, -2) // AppKit's own inset, so the box is as tall as the day beside it
+            .filledField()
+            .help("Start time")
+    }
+}
+
+private struct TimeInput: NSViewRepresentable {
+    @Binding var date: Date
+
+    func makeNSView(context: Context) -> NSDatePicker {
+        let picker = NSDatePicker()
+        picker.datePickerStyle = .textField
+        picker.datePickerElements = .hourMinute
+        picker.isBezeled = false
+        picker.isBordered = false
+        picker.drawsBackground = false
+        picker.focusRingType = .none
+        picker.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        picker.dateValue = date
+        picker.target = context.coordinator
+        picker.action = #selector(Coordinator.changed(_:))
+        picker.setAccessibilityLabel("Start time")
+        return picker
+    }
+
+    func updateNSView(_ picker: NSDatePicker, context: Context) {
+        context.coordinator.date = $date
+        if picker.dateValue != date { picker.dateValue = date }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(date: $date) }
+
+    @MainActor final class Coordinator: NSObject {
+        var date: Binding<Date>
+        init(date: Binding<Date>) { self.date = date }
+        @objc func changed(_ picker: NSDatePicker) { date.wrappedValue = picker.dateValue }
+    }
+}
+
 /// Right-aligned h:mm field with forgiving input ("1:30", "530", "1.5h", "90m"). A click or Tab selects the
 /// whole value, so typing replaces it, and digits get their colon as you type (`durationWithColon`).
 struct DurationField: View {
     @Binding var text: String
+    /// Harvest-size digits beside a form's notes, stretched to their height.
+    var large = false
+    /// Rings the field in red; the form says why underneath.
+    var invalid = false
 
     var body: some View {
-        DurationInput(text: $text)
-            .frame(width: 72)
+        DurationInput(text: $text, large: large)
+            .frame(width: large ? 96 : 72)
+            .frame(maxHeight: large ? .infinity : nil)
             .filledField()
+            .overlay {
+                if invalid { RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.7)) }
+            }
             .help("1:30, 530, 1.5h or 90m")
     }
 }
@@ -472,12 +749,13 @@ struct DurationField: View {
 /// AppKit underneath: SwiftUI's TextField puts the caret where you click and can't be told to select all.
 private struct DurationInput: NSViewRepresentable {
     @Binding var text: String
+    var large = false
 
     func makeNSView(context: Context) -> SelectAllField {
         let field = SelectAllField()
         field.placeholderString = "1:30"
         field.alignment = .right
-        field.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        field.font = .monospacedDigitSystemFont(ofSize: large ? 22 : NSFont.systemFontSize, weight: .semibold)
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -490,6 +768,13 @@ private struct DurationInput: NSViewRepresentable {
     func updateNSView(_ field: SelectAllField, context: Context) {
         context.coordinator.text = $text
         if field.stringValue != text { field.stringValue = text }
+    }
+
+    /// Large: as tall as offered, so a click anywhere in the box lands in the field (the digits sit at its top).
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: SelectAllField, context: Context) -> CGSize? {
+        guard large else { return nil }
+        let fitting = field.intrinsicContentSize
+        return CGSize(width: proposal.width ?? fitting.width, height: max(fitting.height, proposal.height ?? 0))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }

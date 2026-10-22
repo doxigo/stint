@@ -289,6 +289,10 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 
 All of these are checked visually in the preview build. Task links and the working-day target are covered by `check.sh`. The live requests still need a real run.
 
+**Edit Entry** follows Harvest's edit form without copying it: the task as a field (project over task; click to change it), notes beside a large duration, then the day, start time, end time and Billable on one line. Open in Teamwork sits in the header.
+
+**Picking a day** (Edit Entry, Log Time): `DayButton` says the day in words ("Today", "Yesterday", "Mon 19 Oct") and opens `MonthCalendar` under it, drawn like the week strip. A click or Today picks and closes; ← → ↑ ↓ move the day while it's open; Log Time stops at today. It replaced the stock date picker, whose "2026-10-21, 09:35" stepper field was hard to read. Inline rather than a popover: a second window over the menu-bar popover takes the focus, and the popover closes when it loses it. The start time is AppKit's date picker without its bezel, so 12- or 24-hour follows the system.
+
 **Rounding:** set under Settings › General › Time Logs.
 - **Options:** off (the default), up, down or nearest, in steps of 5, 6, 10, 15, 30 or 60 minutes.
 - **Where it applies:** to the Log form's duration, which stays editable and shows the tracked time next to it.

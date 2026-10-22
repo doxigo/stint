@@ -165,6 +165,35 @@ struct PressStyle: ButtonStyle {
     }
 }
 
+/// A button that opens a chooser (a form's task, its day), drawn as a filled field (`filledField`) so it reads as
+/// a value you can change. Washes brand purple under the pointer, and stays washed while its chooser is `open`.
+struct FieldButtonStyle: ButtonStyle {
+    var open = false
+
+    func makeBody(configuration: Configuration) -> some View { Field(configuration: configuration, open: open) }
+
+    private struct Field: View {
+        let configuration: Configuration
+        let open: Bool
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, Space.s)
+                .padding(.vertical, Space.xs)
+                .background(fill, in: .rect(cornerRadius: 8))
+                .contentShape(.rect)
+                .onHover { hovering = $0 }
+                .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
+        }
+
+        private var fill: AnyShapeStyle {
+            if configuration.isPressed || open { return AnyShapeStyle(Brand.purple.opacity(0.16)) }
+            return hovering ? AnyShapeStyle(Brand.purple.opacity(0.1)) : AnyShapeStyle(.quaternary.opacity(0.6))
+        }
+    }
+}
+
 extension View {
     /// Digits roll to a new value: a timer ticking over a minute, a total arriving. A crossfade under Reduce Motion.
     /// ponytail: only for values that change at most once a minute or on new data; a per-second clock would
