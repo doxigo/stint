@@ -32,10 +32,22 @@ cp .build/release/TeamworkTimer "$app/Contents/MacOS/"
 cp Info.plist "$app/Contents/"
 # Stint's built-in Teamwork app ("Sign in with Teamwork"), from the environment: CI passes GitHub secrets.
 # Only the built copy gets it, never the repo. Without an ID, sign-in offers an API token or your own app.
-if [ -n "${TEAMWORK_CLIENT_ID:-}" ]; then
-    plutil -insert TeamworkClientID -string "$TEAMWORK_CLIENT_ID" "$app/Contents/Info.plist"
-    if [ -n "${TEAMWORK_CLIENT_SECRET:-}" ]; then
-        plutil -insert TeamworkClientSecret -string "$TEAMWORK_CLIENT_SECRET" "$app/Contents/Info.plist"
+client_id="${TEAMWORK_CLIENT_ID:-}"
+client_secret="${TEAMWORK_CLIENT_SECRET:-}"
+installed="/Applications/Stint.app"
+owner=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$installed/Contents/Info.plist" 2>/dev/null || true)
+# A local install without them keeps the installed Stint's client, so a plain ./bundle.sh never drops it.
+# Releases (CI, UNSIGNED_RELEASE, SIGNING_IDENTITY) only ever take it from the environment.
+if [ -z "$client_id$client_secret" ] && [ -z "${CI:-}${SIGNING_IDENTITY:-}${UNSIGNED_RELEASE:-}" ] \
+    && [ "${INSTALL:-1}" != 0 ] && [ "$owner" = com.doxigo.TeamworkTimer ]; then
+    client_id=$(plutil -extract TeamworkClientID raw "$installed/Contents/Info.plist" 2>/dev/null || true)
+    client_secret=$(plutil -extract TeamworkClientSecret raw "$installed/Contents/Info.plist" 2>/dev/null || true)
+    [ -z "$client_id" ] || echo "Kept the built-in Teamwork client of $installed."
+fi
+if [ -n "$client_id" ]; then
+    plutil -insert TeamworkClientID -string "$client_id" "$app/Contents/Info.plist"
+    if [ -n "$client_secret" ]; then
+        plutil -insert TeamworkClientSecret -string "$client_secret" "$app/Contents/Info.plist"
     fi
     plutil -insert TeamworkRedirect -string "$redirect" "$app/Contents/Info.plist"
 fi
@@ -101,8 +113,6 @@ fi
 security unlock-keychain -p dev "$keychain"
 codesign --force --keychain "$keychain" --sign "$identity" "$app"
 # Install the local build where it belongs (Spotlight, Launchpad, login items). INSTALL=0 skips this.
-installed="/Applications/Stint.app"
-owner=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$installed/Contents/Info.plist" 2>/dev/null || true)
 if [ "${INSTALL:-1}" = 0 ]; then
     echo "$app"
 elif [ -e "$installed" ] && [ "$owner" != com.doxigo.TeamworkTimer ]; then

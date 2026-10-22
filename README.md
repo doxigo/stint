@@ -99,7 +99,7 @@ You need macOS 26 and either Xcode 26 or the Command Line Tools.
 ./bundle.sh   # builds, signs and installs "/Applications/Stint.app"
 ```
 
-`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an unsigned release whose notes say how to open it.
+`bundle.sh` signs with a self-signed identity it creates once in `.signing/` (git-ignored), so the Keychain keeps recognising the app between local builds. "Sign in with Teamwork" needs the built-in client from `TEAMWORK_CLIENT_ID` and `TEAMWORK_CLIENT_SECRET`; without them, a local install keeps the client of the Stint it replaces, so rebuilding never drops it. Release builds only take it from those variables. Every push to `main` runs checks and a release build on GitHub Actions. A `v*` tag publishes a release: signed, notarized and stapled when the secrets below exist, otherwise an unsigned release whose notes say how to open it.
 
 For public releases, configure these GitHub Actions secrets:
 
