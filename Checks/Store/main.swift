@@ -34,7 +34,7 @@ check(store.webURL(projectId: 1, taskId: 7)?.absoluteString == "https://b.teamwo
 await store.loadWeek(containing: .now) // this week and last
 state.lock.withLock { state.calls = [] }
 check(await store.logAll(drafts) == [1, 2], "second account logs independently")
-check(state.lock.withLock { state.calls.count == 6 }, "two direct logs use four writes and two shared reads")
+check(state.lock.withLock { state.calls.count == 5 }, "two direct logs use four writes and one shared read")
 try store.signOut()
 
 state.lock.withLock { state.removed = []; state.posts = [:]; state.delay = true }
@@ -303,6 +303,22 @@ check(store.adjustments[2] == nil && store.elapsed(timer(2)) == 1200, "a running
 try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
 
+// Pause shows at once, before Teamwork answers, and a refresh that read Teamwork before the pause doesn't undo it.
+state.lock.withLock { state.mode = "slow"; state.removed = []; state.running = [2: .now.addingTimeInterval(-3600)] }
+try await store.signIn(site: "toggle.teamwork.com", token: "placeholder")
+await store.refresh()
+let stale = Task { await store.refresh() } // reads timer 2 still running
+try await Task.sleep(for: .milliseconds(50))
+let pausing = Task { await store.toggle(timer(2)) }
+try await Task.sleep(for: .milliseconds(50))
+check(store.runningTimer == nil, "a pause shows before Teamwork answers")
+_ = await stale.value
+check(store.runningTimer == nil, "a refresh that read Teamwork before the pause doesn't undo it")
+await pausing.value
+check(store.runningTimer == nil && state.lock.withLock { state.running[2] == nil }, "the pause lands")
+try store.signOut()
+state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
+
 // Targets: Teamwork's working hours from sign-in; a custom day applies at once and is remembered.
 let day = { (number: Int) in Calendar.current.dateInterval(of: .day, for: Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: number))!)! }
 try await store.signIn(site: "hours.teamwork.com", token: "placeholder")
@@ -322,10 +338,9 @@ state.lock.withLock { state.removed = []; state.loggedMinutes = 430 }
 try await store.signIn(site: "filled.teamwork.com", token: "placeholder")
 await store.refresh() // two paused timers, 0:10 each
 let tenAM = { (number: Int) in day(number).start.addingTimeInterval(10 * 3600) }
-check(await store.filledToday(at: tenAM(15)) && store.loggedToday == 25_800,
-      "7:10 logged and 0:20 on timers fill a 7:30 day: no reminder")
+check(await store.filledToday(at: tenAM(15)), "7:10 logged and 0:20 on timers fill a 7:30 day: no reminder")
 state.lock.withLock { state.loggedMinutes = 420 }
-check(await !store.filledToday(at: tenAM(15)) && store.loggedToday == 25_200, "below the target: the reminder comes")
+check(await !store.filledToday(at: tenAM(15)), "below the target: the reminder comes")
 state.lock.withLock { state.loggedMinutes = 600 }
 check(await !store.filledToday(at: tenAM(14)), "a day without a target: the reminder comes as before")
 try store.signOut()

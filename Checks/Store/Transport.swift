@@ -122,9 +122,11 @@ final class MockProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (status, body, delay) = Self.state.response(request)
+        // "slow": every answer takes 0.2 s, like a real round trip.
+        let wait = Self.state.lock.withLock { Self.state.mode == "slow" } ? 0.2 : delay
         var headers = ["Content-Type": "application/json"]
         if status == 429, let retryAfter = Self.state.lock.withLock({ Self.state.retryAfter }) { headers["Retry-After"] = retryAfter }
-        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self, headers] in
+        DispatchQueue.global().asyncAfter(deadline: .now() + wait) { [self, headers] in
             guard !stopped.withLock({ cancelled }) else { return }
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data(body.utf8))

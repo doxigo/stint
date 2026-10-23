@@ -67,7 +67,6 @@ struct MenuBarView: View {
         .task(id: opens) {
             await store.refresh()
             await store.loadStarred()
-            await store.refreshToday()
             await store.refreshDueToday()
         }
         // Revalidates the (cached) week on every open (entries edited on the web), on week change, after anything
@@ -337,7 +336,6 @@ private struct DayCell: View {
                 Text(total.hoursMinutes)
                     .font(.caption)
                     .monospacedDigit()
-                    .rollingDigits(total.hoursMinutes)
                     .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
             }
             .frame(maxWidth: .infinity)
@@ -359,7 +357,6 @@ struct TodayTotal: View {
     var body: some View {
         let total = logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
         Text("\(total.hoursMinutes) / \(target.hoursMinutes)")
-            .rollingDigits(total.hoursMinutes)
             .accessibilityLabel("Today, \(total.spoken) of \(target.spoken)")
     }
 }
@@ -563,7 +560,6 @@ struct TimeSummary: View {
             Text(value?.hoursMinutes ?? "–")
                 .font(.system(size: 30, weight: .semibold))
                 .monospacedDigit()
-                .rollingDigits(value?.hoursMinutes) // contentTransition alone never ran: nothing animated the change
             if let target, let value {
                 ProgressView(value: min(value / target, 1))
                     .progressViewStyle(.linear)

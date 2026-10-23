@@ -62,17 +62,15 @@ final class Store {
             return Adjustment(seconds: seconds, teamwork: teamwork, checked: now)
         }
     }
-    /// Logged today, in seconds (refreshed when the popover or Today view opens).
-    private(set) var loggedToday: TimeInterval = 0
     /// Bumped after each successful log so entry lists reload.
     private(set) var logRevision = 0
     /// Logged entries per week (key: the week's start), shared by the popover and the window. A week shows
     /// from here at once while it reloads in the background; the weeks either side load ahead.
     // ponytail: never evicted; a week is a few dozen entries.
     private(set) var weeks: [Date: [TimeEntry]] = [:]
-    /// Clock for the menu bar label, ticking once a second only while a timer runs.
-    /// Time-based views (`Text(timerInterval:)`, `TimelineView`) spin at 100 % CPU inside a MenuBarExtra label,
-    /// so the label renders plain text against this instead.
+    /// Clock for every timer display (menu bar, rows, totals), which all show h:mm: it moves when the running timer's
+    /// minute ticks over (each second while the menu bar shows seconds). Time-based views (`Text(timerInterval:)`,
+    /// `TimelineView`) spin at 100 % CPU inside a MenuBarExtra label, so the label renders plain text against this instead.
     private(set) var menuBarNow = Date.now
     @ObservationIgnored private var ticker: Task<Void, Never>?
     var section: Section? = .timers
@@ -116,6 +114,9 @@ final class Store {
     private var accountReady = false
     private var loggingTimers: Set<Int> = []
     @ObservationIgnored private var completedTimers: Set<Int> = []
+    /// Pauses and resumes in flight, and finished. A timers page read meanwhile may predate one, so it's dropped.
+    @ObservationIgnored private var toggling = 0
+    @ObservationIgnored private var toggled = 0
     @ObservationIgnored private var pollError: String?
     @ObservationIgnored private var starting: Set<String> = []
     @ObservationIgnored private var loggingItems: Set<String> = []
@@ -244,7 +245,6 @@ final class Store {
         accountReady = false
         loggingTimers = []
         completedTimers = []
-        loggedToday = 0
         logRevision = 0
         showingNewTimer = false
         showingLogAll = false
@@ -266,8 +266,15 @@ final class Store {
         guard ticker == nil else { return }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                self?.menuBarNow = .now
+                try? await Task.sleep(for: .seconds(1), tolerance: .milliseconds(200))
+                guard let self else { return }
+                guard let timer = runningTimer else { continue }
+                // Moved every second, it redrew the menu bar item each second: ~1.5 % CPU with nothing open.
+                // ponytail: still wakes each second to look; sleep to the next minute if those wakeups ever matter.
+                let now = Date.now
+                if defaults.bool(forKey: "menuBarSeconds") || Int(elapsed(timer, at: now)) / 60 != Int(elapsed(timer, at: menuBarNow)) / 60 {
+                    menuBarNow = now
+                }
             }
         }
     }
@@ -330,19 +337,22 @@ final class Store {
 
     // MARK: Sync
 
-    /// False when the timers couldn't be fetched.
+    /// False when the timers couldn't be fetched, or a pause or resume overtook them.
     @discardableResult
     func refresh() async -> Bool {
         if !accountReady {
             guard let me = await poll({ try await $0.me() }) else { return false }
             identify(me)
         }
+        let toggledBefore = toggled
         guard let page = await poll({ try await $0.timers() }) else { return false }
         // A failed poll's banner (e.g. offline right after wake) clears once polling works; failed writes stay.
         if let pollError, errorMessage == pollError { errorMessage = nil }
         pollError = nil
         merge(page.included)
-        timers = page.timers.sorted { ($0.running ? 1 : 0, $0.lastActive) > ($1.running ? 1 : 0, $1.lastActive) }
+        // A pause or resume since this page was asked for: it may predate it, and `toggle` refreshes after.
+        guard toggling == 0, toggled == toggledBefore else { return false }
+        timers = ordered(page.timers)
         updateTicker()
         if let running = runningTimer, let item = workItem(for: running) { remember(item) }
         // Time already logged but the timer's removal failed: remove it now, so it can't keep running and have
@@ -368,18 +378,13 @@ final class Store {
         if let projects = await perform({ try await $0.starredProjects() }) { starred = projects }
     }
 
-    func refreshToday() async {
-        guard let entries = await timeEntries(from: .now, to: .now) else { return }
-        loggedToday = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
-    }
-
     /// Whether today's logged time plus the timers' (the popover header's total) reaches today's target.
     /// Fetches today's entries first, so a day filled on the web counts; false without a target or a fetch.
     func filledToday(at now: Date = .now) async -> Bool {
         guard let target = target(in: Calendar.current.dateInterval(of: .day, for: now)!),
               let entries = await timeEntries(from: now, to: now) else { return false }
-        loggedToday = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
-        return loggedToday + timers.reduce(0) { $0 + elapsed($1, at: now) } >= target
+        let logged = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
+        return logged + timers.reduce(0) { $0 + elapsed($1, at: now) } >= target
     }
 
     /// Reloads the week containing `date`, then fetches the weeks either side that aren't cached yet
@@ -397,7 +402,10 @@ final class Store {
     }
 
     private func fetchWeek(_ week: DateInterval) async {
-        if let entries = await timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)) { weeks[week.start] = entries }
+        // Only a changed week: the reload on every popover open redrew the whole day list.
+        if let entries = await timeEntries(from: week.start, to: week.end.addingTimeInterval(-1)), weeks[week.start] != entries {
+            weeks[week.start] = entries
+        }
     }
 
     /// nil when Teamwork couldn't be reached, so callers keep what they had.
@@ -445,8 +453,18 @@ final class Store {
     }
 
     func toggle(_ timer: TWTimer) async {
+        let session = sessionID
         let other = timers.first { $0.running && $0.id != timer.id }
-        await perform { client in
+        let originals = timers.filter { $0.id == timer.id || $0.id == other?.id }
+        // Shown at once, not after Teamwork's answer and a refresh (about a second); put back if Teamwork refuses.
+        var shown = timers
+        for index in shown.indices where shown[index].id == timer.id || shown[index].id == other?.id {
+            shown[index].setRunning(shown[index].id == timer.id && !timer.running, at: .now)
+        }
+        timers = ordered(shown)
+        updateTicker()
+        toggling += 1
+        let sent: Void? = await perform { client in
             if timer.running {
                 try await client.pause(timer.id)
             } else {
@@ -455,7 +473,19 @@ final class Store {
                 try await client.resume(timer.id)
             }
         }
+        toggling -= 1
+        toggled += 1
+        guard sessionID == session else { return }
+        if sent == nil {
+            timers = ordered(timers.map { item in originals.first { $0.id == item.id } ?? item })
+            updateTicker()
+        }
         await refresh()
+    }
+
+    /// Running first, then the most recently used.
+    private func ordered(_ timers: [TWTimer]) -> [TWTimer] {
+        timers.sorted { ($0.running ? 1 : 0, $0.lastActive) > ($1.running ? 1 : 0, $1.lastActive) }
     }
 
     /// Time shown and logged for a timer: Teamwork's time with the local adjustment applied.
@@ -477,7 +507,6 @@ final class Store {
         guard sessionID == session else { return false }
         if logged { logRevision += 1 }
         await refresh()
-        await refreshToday()
         if logged && fresh { showToast("Logged \(seconds.hoursMinutes) to \(title(of: timer))") }
         return logged
     }
@@ -508,7 +537,6 @@ final class Store {
         guard sessionID == session, posted != nil else { return false }
         logRevision += 1
         remember(item)
-        await refreshToday()
         showToast("Logged \(seconds.hoursMinutes) to \(item.title)")
         return true
     }
@@ -610,7 +638,6 @@ final class Store {
         guard sessionID == session else { return [] }
         if !logged.isEmpty { logRevision += 1 }
         await refresh()
-        await refreshToday()
         // Only when all went through: after a partial batch the form stays open with the error.
         if !drafts.isEmpty && logged.count == drafts.count {
             let total = drafts.reduce(0) { $0 + $1.seconds }.hoursMinutes
@@ -660,7 +687,6 @@ final class Store {
             try await $0.updateEntry(entry.id, seconds: seconds, start: start, description: description, billable: billable, target: target)
         }
         if ok != nil { logRevision += 1 }
-        await refreshToday()
         if ok != nil { showToast(target.map { "Entry moved to \($0.title)" } ?? "Entry updated") }
         return ok != nil
     }
@@ -668,7 +694,6 @@ final class Store {
     func deleteEntry(_ entry: TimeEntry) async {
         let ok: Void? = await perform { try await $0.deleteEntry(entry.id) }
         if ok != nil { logRevision += 1 }
-        await refreshToday()
         if ok != nil { showToast("Entry deleted", symbol: "trash") }
     }
 
@@ -776,9 +801,11 @@ final class Store {
         save(recents, "recents")
     }
 
+    /// Writes only what changed: a dictionary write notifies observers even with the same value, so every poll
+    /// redrew each row showing a name.
     private func merge(_ included: Included) {
-        for project in included.projects.values { projectNames[project.id] = project.name }
-        for task in included.tasks.values { taskNames[task.id] = task.name }
+        for project in included.projects.values where projectNames[project.id] != project.name { projectNames[project.id] = project.name }
+        for task in included.tasks.values where taskNames[task.id] != task.name { taskNames[task.id] = task.name }
     }
 
     // MARK: Helpers

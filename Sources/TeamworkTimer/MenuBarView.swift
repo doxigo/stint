@@ -602,8 +602,8 @@ struct ElapsedText: View {
 
     var body: some View {
         let elapsed = store.elapsed(timer, at: store.menuBarNow)
+        // ponytail: no rolling digits (numericText) here or in totals: rolling held the main thread ~0.75 s each minute.
         Text(elapsed.hoursMinutes)
-            .rollingDigits(elapsed.hoursMinutes)
             .accessibilityLabel("\(timer.running ? "Running" : "Paused"), \(elapsed.spoken)")
     }
 }

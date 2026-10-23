@@ -100,8 +100,9 @@ import SwiftUI
             button.title = title
             button.font = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
         }
-        button.imagePosition = title.isEmpty ? .imageOnly : .imageLeading
-        button.setAccessibilityLabel(label)
+        let position: NSControl.ImagePosition = title.isEmpty ? .imageOnly : .imageLeading
+        if button.imagePosition != position { button.imagePosition = position }
+        if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
     }
 
     @objc private func clicked(_ button: NSStatusBarButton) {

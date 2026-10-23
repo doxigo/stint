@@ -195,24 +195,6 @@ struct FieldButtonStyle: ButtonStyle {
 }
 
 extension View {
-    /// Digits roll to a new value: a timer ticking over a minute, a total arriving. A crossfade under Reduce Motion.
-    /// ponytail: only for values that change at most once a minute or on new data; a per-second clock would
-    /// animate nonstop (see LiveDot), and totals that change on ← → day steps would animate a keyboard action.
-    func rollingDigits(_ value: some Equatable) -> some View { modifier(RollingDigits(value: value)) }
-}
-
-private struct RollingDigits<Value: Equatable>: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let value: Value
-
-    func body(content: Content) -> some View {
-        content
-            .contentTransition(reduceMotion ? .opacity : .numericText())
-            .animation(.snappy(duration: 0.3), value: value)
-    }
-}
-
-extension View {
     /// Rows fade in and out and glide into place when `ids` (in order) change: a timer logged or started (running
     /// timers sort first), a pin dropped in a new slot. Instant under Reduce Motion, where the glide is the motion.
     /// ponytail: main-window pages only. The popover resizes in one frame (StatusItem), which would clip a glide.

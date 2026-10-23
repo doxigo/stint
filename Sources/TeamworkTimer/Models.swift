@@ -67,6 +67,18 @@ struct TWTimer: Decodable, Identifiable, Equatable, Sendable {
         return min(elapsed(at: end), finished + active)
     }
 
+    /// Starts or pauses it locally, as Teamwork will: a pause banks the run in progress.
+    mutating func setRunning(_ on: Bool, at now: Date) {
+        guard on != running else { return }
+        if on {
+            lastStartedAt = now
+        } else {
+            duration = Int(elapsed(at: now))
+            if let start = lastStartedAt { intervals.append(Interval(from: start, to: now)) }
+        }
+        running = on
+    }
+
     /// When the timer first started; this is the start time a time entry should carry.
     var startedAt: Date? { intervals.map(\.from).min() ?? lastStartedAt }
 
