@@ -302,14 +302,13 @@ struct EntriesView: View {
             .map { ($0.key, $0.value.sorted { ($0.timeLogged ?? .distantPast) < ($1.timeLogged ?? .distantPast) }) }
     }
 
-    /// Per-day totals for the week strip, today's timers included (as in the popover).
+    /// Logged minutes per day for the week strip; its today cell adds the timers on the store's clock (as in the popover).
     private var dayTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
         for entry in weekEntries ?? [] {
             guard let logged = entry.timeLogged else { continue }
             totals[calendar.startOfDay(for: logged), default: 0] += TimeInterval(entry.minutes * 60)
         }
-        for timer in store.timers { totals[calendar.startOfDay(for: .now), default: 0] += store.elapsed(timer) }
         return totals
     }
 
@@ -321,12 +320,10 @@ struct EntriesView: View {
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
                 }
-            } else if let target { // the numbers are in the subtitle
-                ProgressView(value: min(total / target, 1))
+            } else if let target {
+                DayProgress(logged: total, target: target, live: isCurrent, past: interval.end <= .now)
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.m)
-                    .accessibilityLabel("Logged")
-                    .accessibilityValue("\(total.spoken) of \(target.spoken)")
             }
             if isCurrent && !store.timers.isEmpty {
                 Section { TimerList(sheet: $sheet) } header: { SectionHeader("Timers") }
@@ -349,7 +346,7 @@ struct EntriesView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if span == .day {
                 VStack(spacing: 0) {
-                    WeekStrip(week: week, selected: $anchor, totals: dayTotals)
+                    WeekStrip(week: week, selected: $anchor, totals: dayTotals, liveToday: true)
                     Divider()
                 }
                 .background(.background)
@@ -373,7 +370,7 @@ struct EntriesView: View {
         // Timers only: entries also change on ⌘[ ⌘] steps, which stay instant.
         .glidingRows(store.timers.map(\.id))
         .navigationTitle(title)
-        .navigationSubtitle(target.map { "Logged \(total.hoursMinutes) of \($0.hoursMinutes)" } ?? "Logged \(total.hoursMinutes)")
+        .background { EntriesSubtitle(logged: total, target: target, live: span == .day && isCurrent) }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Previous", systemImage: "chevron.left") { step(-1) }
@@ -413,6 +410,79 @@ struct EntriesView: View {
     private func start(_ item: WorkItem) {
         anchor = calendar.startOfDay(for: .now)
         Task { await store.start(item) }
+    }
+}
+
+/// Today's timers on the store's clock; 0 elsewhere.
+@MainActor private func tracked(_ store: Store, live: Bool) -> TimeInterval {
+    live ? store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) } : 0
+}
+
+/// The window subtitle: logged time against the target and, today, the timers' time and the sum the week strip shows.
+/// A leaf set from the page's background, so each clock tick re-renders it rather than the page.
+private struct EntriesSubtitle: View {
+    @Environment(Store.self) private var store
+    let logged: TimeInterval
+    let target: TimeInterval?
+    let live: Bool
+
+    var body: some View {
+        let goal = target.map { " of \($0.hoursMinutes)" } ?? ""
+        let timers = tracked(store, live: live)
+        Color.clear.navigationSubtitle(live && !store.timers.isEmpty
+            ? "Logged \(logged.hoursMinutes) · Timers \(timers.hoursMinutes) · \((logged + timers).hoursMinutes)\(goal)"
+            : "Logged \(logged.hoursMinutes)\(goal)")
+    }
+}
+
+/// Progress toward the day's target: logged time solid, today's timers after it in a lighter tint, with a key
+/// and what's left below. A leaf, like `EntriesSubtitle`.
+private struct DayProgress: View {
+    @Environment(Store.self) private var store
+    let logged: TimeInterval
+    let target: TimeInterval
+    let live: Bool
+    /// The day is over, so a shortfall reads "under", not "left" (as in Time Summary).
+    let past: Bool
+    private static let timersTint = Brand.purple.opacity(0.4)
+
+    var body: some View {
+        let timers = tracked(store, live: live)
+        let total = logged + timers
+        let rest = total >= target ? "Target met" : "\((target - total).hoursMinutes) \(past ? "under" : "left of") \(target.hoursMinutes)"
+        VStack(spacing: Space.xs) {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                // The timers' capsule runs under the logged one, so the two read as one bar with a lighter end.
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.quaternary)
+                    Capsule().fill(Self.timersTint).frame(width: width * min(total / target, 1))
+                    Capsule().fill(Brand.purpleFill).frame(width: width * min(logged / target, 1))
+                }
+            }
+            .frame(height: 8)
+            HStack(spacing: Space.m) {
+                key("Logged", logged, Brand.purpleFill)
+                if live && !store.timers.isEmpty { key("Timers", timers, Self.timersTint) }
+                Spacer()
+                Text(rest).foregroundStyle(total >= target ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+            }
+            .font(.callout)
+            .monospacedDigit()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Logged")
+        .accessibilityValue(timers > 0 ? "\(logged.spoken), plus \(timers.spoken) in timers, of \(target.spoken)"
+                                       : "\(logged.spoken) of \(target.spoken)")
+    }
+
+    /// A dot in the segment's colour, its name and its time.
+    private func key(_ label: String, _ value: TimeInterval, _ color: Color) -> some View {
+        HStack(spacing: Space.xxs) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).foregroundStyle(.secondary)
+            Text(value.hoursMinutes).fontWeight(.medium)
+        }
     }
 }
 
