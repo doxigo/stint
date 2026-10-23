@@ -16,6 +16,8 @@ final class MockState: @unchecked Sendable {
     /// Timer seconds set through `seconds` on PUT (paused timers, default 600), and running timers' start.
     var durations: [Int: Int] = [:]
     var running: [Int: Date] = [:]
+    /// The project of timer 3, once a POST started it ("slow" mode only; elsewhere starting a timer is refused).
+    var created: Int?
     /// The next `limited` requests get a 429, with this `Retry-After` header (nil leaves it out).
     var limited = 0
     var retryAfter: String? = "0"
@@ -41,7 +43,14 @@ final class MockState: @unchecked Sendable {
             if path.hasSuffix("/workload.json") {
                 return (200, "{\"included\":{\"workingHourEntries\":{\"1\":{\"weekday\":\"thursday\",\"taskHours\":7.5},\"2\":{\"weekday\":\"friday\",\"taskHours\":6}}}}", 0)
             }
-            if verb == "POST", path.hasSuffix("/timers.json") { return (403, "{}", 0) }
+            if verb == "POST", path.hasSuffix("/timers.json") {
+                guard mode == "slow", let project = (Self.json(request)?["timer"] as? [String: Any])?["projectId"] as? Int else { return (403, "{}", 0) }
+                // `stopRunningTimers`: any running timer pauses.
+                for (id, start) in running { durations[id] = Int(Date.now.timeIntervalSince(start)) }
+                running = [3: .now]
+                created = project
+                return (201, "{\"timer\":{\"id\":3,\"projectId\":\(project),\"running\":true,\"lastStartedAt\":\"\(Date.now.formatted(.iso8601))\"},\"included\":{}}", 0)
+            }
             if verb == "POST", path.hasSuffix("/time.json") {
                 body = Self.json(request)
                 let id = Int(path.split(separator: "/").dropLast().last!)!
@@ -82,12 +91,14 @@ final class MockState: @unchecked Sendable {
             }
             if path.hasSuffix("/timers.json"), mode == "offline-once" { mode = "normal"; return (503, "{}", 0) }
             if path.hasSuffix("/timers.json") {
-                let ids = [1, 2].filter { !removed.contains($0) }
+                var projects = [1: 101, 2: 202]
+                projects[3] = created
+                let ids = projects.keys.sorted().filter { !removed.contains($0) }
                 // Like Teamwork after a time edit, the runs needn't add up to `duration`: each keeps its first 10 minutes.
                 let runs = ",\"intervals\":[{\"id\":1,\"from\":\"2026-01-01T08:00:00Z\",\"to\":\"2026-01-01T08:10:00Z\",\"duration\":600}]"
                 let rows = ids.map { id in
                     let started = running[id].map { ",\"running\":true,\"lastStartedAt\":\"\($0.formatted(.iso8601))\"" } ?? ",\"running\":false"
-                    return "{\"id\":\(id),\"duration\":\(running[id] == nil ? durations[id] ?? 600 : 0),\"projectId\":\(id == 1 ? 101 : 202)\(started)\(runs)}"
+                    return "{\"id\":\(id),\"duration\":\(running[id] == nil ? durations[id] ?? 600 : 0),\"projectId\":\(projects[id]!)\(started)\(runs)}"
                 }.joined(separator: ",")
                 if mode == "late", url.host == "a.teamwork.com", !delayedStarted {
                     delayedStarted = true

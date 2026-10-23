@@ -319,6 +319,23 @@ check(store.runningTimer == nil && state.lock.withLock { state.running[2] == nil
 try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
 
+// A start shows at once too, pausing the running timer, and a refresh that read Teamwork before it doesn't undo it.
+state.lock.withLock { state.mode = "slow"; state.removed = []; state.running = [2: .now.addingTimeInterval(-3600)] }
+try await store.signIn(site: "start.teamwork.com", token: "placeholder")
+await store.refresh()
+let staleList = Task { await store.refresh() } // reads timer 2 running, and no new timer
+try await Task.sleep(for: .milliseconds(50))
+let starting = Task { await store.start(WorkItem(projectId: 505, projectName: "New work")) }
+try await Task.sleep(for: .milliseconds(50))
+let startedAlone = { store.runningTimer.map { store.title(of: $0) } == "New work" && store.timers.filter(\.running).count == 1 }
+check(startedAlone(), "a start shows before Teamwork answers, and the running timer pauses")
+_ = await staleList.value
+check(startedAlone(), "a refresh that read Teamwork before the start doesn't undo it")
+await starting.value
+check(startedAlone() && store.runningTimer?.id == 3 && state.lock.withLock { state.running.keys.sorted() == [3] }, "the start lands")
+try store.signOut()
+state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:]; state.created = nil }
+
 // Targets: Teamwork's working hours from sign-in; a custom day applies at once and is remembered.
 let day = { (number: Int) in Calendar.current.dateInterval(of: .day, for: Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: number))!)! }
 try await store.signIn(site: "hours.teamwork.com", token: "placeholder")

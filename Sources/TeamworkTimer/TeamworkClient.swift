@@ -82,13 +82,16 @@ actor TeamworkClient {
                       [.init(name: "include", value: "projects,tasks"), .init(name: "pageSize", value: "50")])
     }
 
-    func startTimer(_ item: WorkItem) async throws {
+    /// Teamwork's new timer, from its answer (`{"timer": …}`); nil if that can't be read, since the timer started all
+    /// the same and the next refresh shows it.
+    func startTimer(_ item: WorkItem) async throws -> TWTimer? {
         var timer: [String: Any] = [
             "projectId": item.projectId, "description": item.description, "isBillable": item.billable,
             "isRunning": true, "stopRunningTimers": true,
         ]
         if let taskId = item.taskId { timer["taskId"] = taskId }
-        try await send("POST", "projects/api/v3/me/timers.json", body: ["timer": timer])
+        let answer = try await send("POST", "projects/api/v3/me/timers.json", body: ["timer": timer])
+        return try? decoder.decode(TimerResponse.self, from: answer).timer
     }
 
     func pause(_ id: Int) async throws { try await send("PUT", "projects/api/v3/me/timers/\(id)/pause.json") }
@@ -352,6 +355,9 @@ struct TimersResponse: Decodable, Sendable, PaginatedResponse {
         included = (try? c.decode(Included.self, forKey: .included)) ?? Included()
     }
 }
+
+/// A started timer (`POST me/timers.json`); its `included` isn't needed.
+struct TimerResponse: Decodable, Sendable { let timer: TWTimer }
 
 struct ProjectsResponse: Decodable, Sendable, PaginatedResponse {
     var projects: [Project]

@@ -114,7 +114,7 @@ final class Store {
     private var accountReady = false
     private var loggingTimers: Set<Int> = []
     @ObservationIgnored private var completedTimers: Set<Int> = []
-    /// Pauses and resumes in flight, and finished. A timers page read meanwhile may predate one, so it's dropped.
+    /// Starts, pauses and resumes in flight, and finished. A timers page read meanwhile may predate one, so it's dropped.
     @ObservationIgnored private var toggling = 0
     @ObservationIgnored private var toggled = 0
     @ObservationIgnored private var pollError: String?
@@ -337,7 +337,7 @@ final class Store {
 
     // MARK: Sync
 
-    /// False when the timers couldn't be fetched, or a pause or resume overtook them.
+    /// False when the timers couldn't be fetched, or a start, pause or resume overtook them.
     @discardableResult
     func refresh() async -> Bool {
         if !accountReady {
@@ -350,7 +350,7 @@ final class Store {
         if let pollError, errorMessage == pollError { errorMessage = nil }
         pollError = nil
         merge(page.included)
-        // A pause or resume since this page was asked for: it may predate it, and `toggle` refreshes after.
+        // A start, pause or resume since this page was asked for: it may predate it, and `start` and `toggle` refresh after.
         guard toggling == 0, toggled == toggledBefore else { return false }
         timers = ordered(page.timers)
         updateTicker()
@@ -428,17 +428,43 @@ final class Store {
     }
 
     func start(_ item: WorkItem) async {
+        // A double click sends one request.
+        let key = "\(item.projectId)-\(item.taskId ?? 0)"
+        guard starting.insert(key).inserted else { return }
+        defer { starting.remove(key) }
         // Teamwork refuses a second timer on the same task (403): resume or keep the existing one instead.
         if let existing = timer(for: item) {
             if !existing.running { await toggle(existing) }
             remember(item)
             return
         }
-        // A double click sends one request.
-        let key = "\(item.projectId)-\(item.taskId ?? 0)"
-        guard starting.insert(key).inserted else { return }
-        defer { starting.remove(key) }
-        if await perform({ try await $0.startTimer(item) }) != nil { remember(item) }
+        let session = sessionID
+        let originals = timers.filter(\.running)
+        // Shown at once, running alone (`stopRunningTimers`), not after Teamwork's answer and a refresh (about a
+        // second). Teamwork's timer from its answer replaces this placeholder, which goes if Teamwork refuses.
+        // ponytail: until that answer (a round trip) the row's ID is made up, so acting on it reaches no timer at
+        // Teamwork (404); disable rows with a negative ID if that's ever hit.
+        let placeholder = TWTimer(id: .random(in: .min ..< 0), description: item.description, running: true,
+                                  billable: item.billable, duration: 0, lastStartedAt: .now,
+                                  projectId: item.projectId, taskId: item.taskId)
+        if projectNames[item.projectId] == nil { projectNames[item.projectId] = item.projectName }
+        if let id = item.taskId, let name = item.taskName, taskNames[id] == nil { taskNames[id] = name }
+        var shown = timers
+        for index in shown.indices where shown[index].running { shown[index].setRunning(false, at: .now) }
+        timers = ordered(shown + [placeholder])
+        updateTicker()
+        toggling += 1
+        let sent = await perform { try await $0.startTimer(item) }
+        toggling -= 1
+        toggled += 1
+        guard sessionID == session else { return }
+        if let sent {
+            remember(item)
+            if let created = sent { timers = ordered(timers.map { $0.id == placeholder.id ? created : $0 }) }
+        } else {
+            timers = ordered(timers.filter { $0.id != placeholder.id }.map { row in originals.first { $0.id == row.id } ?? row })
+            updateTicker()
+        }
         await refresh()
     }
 
