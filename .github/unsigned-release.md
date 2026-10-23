@@ -14,5 +14,7 @@ Or remove the download quarantine in Terminal instead:
 xattr -dr com.apple.quarantine "/Applications/Stint.app"
 ```
 
+Stint 0.5.5 and later install their own updates (Settings › Updates).
+
 Requires macOS 26 on Apple silicon. Because the build isn't Developer ID signed, macOS asks for your login password once after each update so the app can read its saved sign-in; choose **Always Allow**.
 

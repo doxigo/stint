@@ -15,6 +15,8 @@ struct GeneralSettings: View {
     @AppStorage("remindersEnabled") private var remindersEnabled = false
     @AppStorage("longTimerAlert") private var longTimerAlert = true
     @AppStorage("endOfDayNudge") private var endOfDayNudge = true
+    @AppStorage("autoUpdate") private var autoUpdate = true
+    private let updater = Updater.shared
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -120,8 +122,45 @@ struct GeneralSettings: View {
             .onChange(of: remindersEnabled || longTimerAlert || endOfDayNudge) { _, on in
                 if on { Task { await Reminders.requestPermission() } }
             }
+            Section {
+                Toggle("Install updates automatically", isOn: $autoUpdate)
+                LabeledContent("Stint \(Updater.current)") { updateStatus }
+                if case .failed(let message) = updater.status {
+                    Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text(autoUpdate ? "Checks for a new version every few hours and installs it in the background. Stint restarts into it once you're away with no timer running."
+                                : "Stint only checks when you click Check Now.")
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    @ViewBuilder private var updateStatus: some View {
+        switch updater.status {
+        case .checking:
+            HStack { ProgressView().controlSize(.small); Text("Checking…") }
+        case .installing(let version):
+            HStack { ProgressView().controlSize(.small); Text("Installing \(version)…") }
+        case .available(let version):
+            HStack {
+                Text("\(version) is available")
+                Button("Install") { Task { await updater.install() } }
+            }
+        case .installed(let version):
+            HStack {
+                Text("\(version) is installed")
+                Button("Restart Now") { updater.restart() }
+            }
+        case .idle, .upToDate, .failed:
+            HStack {
+                if updater.status == .upToDate { Text("Up to date") }
+                Button("Check Now") { Task { await updater.check() } }
+            }
+        }
     }
 
     /// Teamwork's working-day lengths, one per working weekday.

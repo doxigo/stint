@@ -60,7 +60,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 
 Releases are signed with a Developer ID and notarized once the signing secrets below are configured. Until then they are published as **unsigned releases**: macOS blocks the first launch. Open the app, click **Done** on the warning, then click **Open Anyway** in **System Settings › Privacy & Security › Security** (it's there for about an hour) and enter your login password to confirm. Or run `xattr -dr com.apple.quarantine "/Applications/Stint.app"`.
 
-Requires macOS 26 or later.
+Requires macOS 26 or later. After that, Stint updates itself from these releases. To turn that off, open Settings › Updates.
 
 ## Sign in
 

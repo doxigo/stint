@@ -9,7 +9,10 @@ struct TeamworkTimerApp: App {
         let store = Store()
         _store = State(initialValue: store)
         HotKey.apply(HotKey.saved) { Task { await store.pauseOrResume() } }
-        Task { StatusItem.install(store) }
+        Task {
+            StatusItem.install(store)
+            Updater.shared.start(store)
+        }
     }
 
     var body: some Scene {

@@ -11,7 +11,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 xcrun swiftc -swift-version 6 \
     "$src/Models.swift" "$src/TeamworkClient.swift" "$src/Auth.swift" "$src/Store.swift" "$src/Idle.swift" \
-    "$src/Reminders.swift" "$src/Brand.swift" "$src/Chrome.swift" "$src/MenuBarView.swift" \
+    "$src/Reminders.swift" "$src/Brand.swift" "$src/Chrome.swift" "$src/MenuBarView.swift" "$src/Updater.swift" \
     Checks/main.swift -o "$out/checks"
 "$out/checks" Checks/fixtures
 xcrun swiftc -swift-version 6 \

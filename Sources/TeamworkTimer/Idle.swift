@@ -7,7 +7,7 @@ import CoreGraphics
 final class IdleMonitor {
     static var enabled: Bool { UserDefaults.standard.object(forKey: "idleEnabled") as? Bool ?? true }
     static var threshold: TimeInterval { TimeInterval(UserDefaults.standard.object(forKey: "idleMinutes") as? Int ?? 10) * 60 }
-    private static let anyInput = CGEventType(rawValue: ~0)!
+    static let anyInput = CGEventType(rawValue: ~0)!
 
     private weak var store: Store?
     private var idleSince: Date?
