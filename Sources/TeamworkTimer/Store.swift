@@ -34,6 +34,8 @@ final class Store {
 
     private(set) var client: TeamworkClient?
     private(set) var site: URL?
+    /// Where links open: the account's own address (e.g. a custom domain), else `site`.
+    private(set) var webSite: URL?
     private(set) var accountName: String?
     private(set) var userId: Int?
     private(set) var timers: [TWTimer] = []
@@ -224,6 +226,7 @@ final class Store {
         sessionID = UUID()
         client = nil
         site = nil
+        webSite = nil
         accountName = nil
         userId = nil
         teamworkHours = nil
@@ -281,9 +284,10 @@ final class Store {
         if Reminders.longTimerAlert { await Reminders.requestPermission() }
     }
 
-    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?)) {
+    private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?, web: URL?)) {
         accountReady = false
         (userId, accountName, teamworkDayLength, teamworkHours) = (me.id, me.name, me.dayLength, me.hours)
+        webSite = me.web ?? site
         pins = load("pins") ?? adoptLegacy("pins") ?? []
         recents = load("recents") ?? adoptLegacy("recents") ?? []
         adjustments = load("adjustments") ?? adoptLegacy("adjustments") ?? [:]
@@ -310,6 +314,7 @@ final class Store {
             if waiting { AccessibilityNotification.Announcement(Self.rateLimitStatus).post() }
         }
         site = credentials.site
+        webSite = credentials.site
         guard polls else { return }
         poller = Task { [weak self] in
             while !Task.isCancelled {
@@ -758,7 +763,7 @@ final class Store {
 
     /// Web link for a task, else its project.
     func webURL(projectId: Int?, taskId: Int?) -> URL? {
-        guard let site else { return nil }
+        guard let site = webSite else { return nil }
         if let taskId { return site.appending(path: "app/tasks/\(taskId)") }
         return projectId.map { site.appending(path: "app/projects/\($0)") }
     }

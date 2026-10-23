@@ -59,8 +59,9 @@ actor TeamworkClient {
     // MARK: Account
 
     /// The signed-in person; doubles as a credentials check. `dayLength` is their working day and `hours` their
-    /// working hours per weekday (see `WorkloadResponse`), in seconds.
-    func me() async throws -> (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?) {
+    /// working hours per weekday (see `WorkloadResponse`), in seconds. `web` is the site's own web address, e.g. a
+    /// custom domain that the API host only reaches through a Launchpad redirect.
+    func me() async throws -> (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?, web: URL?) {
         let me = try await get(MeResponse.self, "projects/api/v3/me.json").person
         // Optional: without working hours (or access to them) the target falls back to lengthOfDay.
         let today = Date.now.formatted(.iso8601.year().month().day())
@@ -68,8 +69,10 @@ actor TeamworkClient {
             .init(name: "userIds", value: String(me.id)), .init(name: "startDate", value: today), .init(name: "endDate", value: today),
             .init(name: "include", value: "users.workingHours,users.workingHours.workingHoursEntry"),
         ]).hours
+        // Optional too: without it, links open on the API host.
+        let web = try? await get(AccountResponse.self, "account.json").account.URL
         return (me.id, "\(me.firstName) \(me.lastName)".trimmingCharacters(in: .whitespaces),
-                me.lengthOfDay.flatMap { $0 > 0 ? $0 * 3600 : nil }, hours)
+                me.lengthOfDay.flatMap { $0 > 0 ? $0 * 3600 : nil }, hours, web.flatMap(normalizedSite))
     }
 
     // MARK: Timers
@@ -413,6 +416,12 @@ struct MeResponse: Decodable, Sendable {
         var lengthOfDay: Double?
     }
     let person: Person
+}
+
+/// v1 `account.json`: only the site's web address.
+struct AccountResponse: Decodable, Sendable {
+    struct Account: Decodable, Sendable { let URL: String }
+    let account: Account
 }
 
 /// Only the working hours (Edit My Details › Working Hours) of a workload; v3 has no other way to read them.

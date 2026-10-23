@@ -15,6 +15,7 @@ defer { defaults.removePersistentDomain(forName: suite); try? FileManager.defaul
 let store = Store(defaults: defaults, logDirectory: directory, polls: false)
 try await store.signIn(site: "a.teamwork.com", token: "placeholder")
 await store.refresh()
+check(store.webURL(projectId: 1, taskId: 7)?.absoluteString == "https://tw.a.example/app/tasks/7", "links open on the account's own domain")
 let first = store.timers.first { $0.id == 1 }!
 let second = store.timers.first { $0.id == 2 }!
 let drafts = [(timer: first, seconds: 900.0, durationEdited: true, billable: false), (timer: second, seconds: 900.0, durationEdited: true, billable: false)]
@@ -29,6 +30,7 @@ try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.removed = []; state.posts = [:]; state.calls = [] }
 try await store.signIn(site: "b.teamwork.com", token: "placeholder")
 await store.refresh()
+check(store.webURL(projectId: 1, taskId: 7)?.absoluteString == "https://b.teamwork.com/app/tasks/7", "without an account address, links open on the API site")
 await store.loadWeek(containing: .now) // this week and last
 state.lock.withLock { state.calls = [] }
 check(await store.logAll(drafts) == [1, 2], "second account logs independently")

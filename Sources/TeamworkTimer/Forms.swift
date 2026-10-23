@@ -356,7 +356,7 @@ private struct LogRecovery: View {
             VStack(alignment: .leading, spacing: Space.s) {
                 Text(status == .posted ? "This time is already logged. Remove the leftover timer."
                      : "Check Teamwork to see whether this time was logged before choosing an action.")
-                if let site = store.site { Link("Open Teamwork", destination: site) }
+                if let site = store.webSite { Link("Open Teamwork", destination: site) }
                 HStack {
                     Button(status == .posted ? "Remove logged timer" : "Entry exists. Remove timer") { resolve(entryExists: true) }
                     if status == .uncertain {

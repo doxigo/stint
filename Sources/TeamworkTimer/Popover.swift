@@ -189,7 +189,7 @@ struct MenuBarView: View {
             Spacer()
             // Split button: click opens the main window; its arrow holds what the gear menu used to.
             Menu {
-                if let site = store.site { Link("Open Teamwork in Browser", destination: site) }
+                if let site = store.webSite { Link("Open Teamwork in Browser", destination: site) }
                 Button("Settings…", action: showSettings)
                 Divider()
                 Button("Quit Stint") { NSApp.terminate(nil) }
