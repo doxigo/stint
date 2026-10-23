@@ -284,7 +284,6 @@ struct WorkRow: View {
                     if let log {
                         Button(action: log) { Label("Log", systemImage: "clock.badge.checkmark") }
                             .buttonStyle(RowIconStyle())
-                            .frame(width: 30)
                             .help("Log time without starting a timer")
                             .opacity(hovering ? 1 : 0)
                             .disabled(!hovering)
@@ -365,7 +364,7 @@ struct WorkRow: View {
 }
 
 /// Harvest-style timer row: task (up to two lines), project and notes; time and one Start/Pause button.
-/// Edit and Log icons appear under it on hover; every action is also in the context menu and VoiceOver actions.
+/// Edit and Log icons appear beside the time on hover; every action is also in the context menu and VoiceOver actions.
 struct TimerRow: View {
     @Environment(Store.self) private var store
     let timer: TWTimer
@@ -393,7 +392,30 @@ struct TimerRow: View {
         let notes = timer.description.isEmpty || timer.description == title ? nil : timer.description
         return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
-                TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
+                // Edit and Log share the title's line, beside the time: under Start/Pause they held an empty band
+                // below two-line rows (purple on the running one). Width kept while hidden, so the title doesn't
+                // rewrap; project and notes keep the full width. Hidden also means out of the click and Tab order;
+                // VoiceOver reaches both through the row's actions.
+                HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+                    TitleLink(title: title, url: store.webURL(projectId: timer.projectId, taskId: timer.taskId))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: Space.xxs) {
+                        if let onEdit {
+                            Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
+                                .help("Edit task or notes")
+                                .accessibilityLabel("Edit \(title)")
+                        }
+                        Button(action: onLog) { Label("Log", systemImage: "clock.badge.checkmark") }
+                            .help("Stop and log time")
+                            .accessibilityLabel("Log \(title)")
+                    }
+                    .buttonStyle(RowIconStyle())
+                    .opacity(hovering ? 1 : 0)
+                    .disabled(!hovering)
+                    .accessibilityHidden(!hovering)
+                    .animation(.easeOut(duration: 0.15), value: hovering)
+                    .frame(height: 0) // overhang the title's line rather than push the project down
+                }
                 if let project { Text(project).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
                 if let notes { Text(notes).font(.callout).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
             }
@@ -409,28 +431,7 @@ struct TimerRow: View {
                     .overlay(alignment: .leading) {
                         if timer.running { LiveDot().offset(x: -(Space.m + 7) / 2) }
                     }
-                // One column as wide as Start/Pause, so Edit and Log split exactly its width.
-                VStack(spacing: Space.xs) {
-                    startPause(title)
-                    HStack(spacing: Space.xxs) {
-                        if let onEdit {
-                            Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
-                                .help("Edit task or notes")
-                                .accessibilityLabel("Edit \(title)")
-                        }
-                        Button(action: onLog) { Label("Log", systemImage: "clock.badge.checkmark") }
-                            .help("Stop and log time")
-                            .accessibilityLabel("Log \(title)")
-                    }
-                    .buttonStyle(RowIconStyle())
-                    // Space kept while hidden, so rows don't jump. Hidden also means out of the click and Tab
-                    // order; VoiceOver reaches both through the row's actions.
-                    .opacity(hovering ? 1 : 0)
-                    .disabled(!hovering)
-                    .accessibilityHidden(!hovering)
-                    .animation(.easeOut(duration: 0.15), value: hovering)
-                }
-                .fixedSize(horizontal: true, vertical: false)
+                startPause(title)
             }
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.m)
@@ -459,24 +460,14 @@ struct TimerRow: View {
     /// The row's one primary control. Text plus a filled/bordered style, so state isn't colour alone.
     @ViewBuilder private func startPause(_ title: String) -> some View {
         if timer.running {
-            Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Pause", systemImage: "pause.fill")) }
+            Button { Task { await store.toggle(timer) } } label: { Label("Pause", systemImage: "pause.fill") }
                 .buttonStyle(StartPauseStyle(filled: true))
                 .accessibilityLabel("Pause \(title)")
         } else {
-            Button { Task { await store.toggle(timer) } } label: { startPauseLabel(Label("Start", systemImage: "clock")) }
+            Button { Task { await store.toggle(timer) } } label: { Label("Start", systemImage: "clock") }
                 .buttonStyle(StartPauseStyle())
                 .accessibilityLabel("Start \(title)")
         }
-    }
-
-    /// Sized for the wider of Start and Pause, so the column keeps its width when the timer toggles.
-    private func startPauseLabel(_ label: some View) -> some View {
-        ZStack {
-            Label("Start", systemImage: "clock").hidden()
-            Label("Pause", systemImage: "pause.fill").hidden()
-            label
-        }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var menuItems: some View {
@@ -533,9 +524,10 @@ struct RowStyle: ButtonStyle {
     }
 }
 
-/// A row's Start (grey) and Pause (`filled`, brand purple), drawn like the Edit and Log chips under them so the
-/// column reads as one control. Under the pointer Start washes brand purple and Pause deepens to the press purple,
-/// easing in and out (the native bezel can't animate a hover); a press gives a little, except under Reduce Motion.
+/// A row's Start (grey) and Pause (`filled`, brand purple), drawn like the Edit and Log chips beside them. Always as
+/// wide as the wider of the two, so a timer keeps its width when it toggles and every row's Start lines up, Timers
+/// and Logged alike. Under the pointer Start washes brand purple and Pause deepens to the press purple, easing in
+/// and out (the native bezel can't animate a hover); a press gives a little, except under Reduce Motion.
 struct StartPauseStyle: ButtonStyle {
     var filled = false
 
@@ -549,16 +541,20 @@ struct StartPauseStyle: ButtonStyle {
 
         var body: some View {
             let active = hovering || configuration.isPressed
-            configuration.label
-                .foregroundStyle(filled ? AnyShapeStyle(.white) : active ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
-                .padding(.horizontal, Space.s)
-                .frame(minHeight: 24) // a regular native button's height, so rows keep theirs
-                .background(fill(active), in: .rect(cornerRadius: 7, style: .continuous))
-                .contentShape(.rect)
-                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-                .onHover { hovering = $0 }
-                .animation(.easeOut(duration: 0.15), value: hovering)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            ZStack {
+                Label("Start", systemImage: "clock").hidden()
+                Label("Pause", systemImage: "pause.fill").hidden()
+                configuration.label
+            }
+            .foregroundStyle(filled ? AnyShapeStyle(.white) : active ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.primary))
+            .padding(.horizontal, Space.s)
+            .frame(minHeight: 24) // a regular native button's height, so rows keep theirs
+            .background(fill(active), in: .rect(cornerRadius: 7, style: .continuous))
+            .contentShape(.rect)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.15), value: hovering)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
 
         private func fill(_ active: Bool) -> AnyShapeStyle {
@@ -569,8 +565,7 @@ struct StartPauseStyle: ButtonStyle {
     }
 }
 
-/// A timer row's secondary icons: quiet grey at rest, brand purple under the pointer, deeper when pressed.
-/// Each fills its share of the row, so a pair spans the Start/Pause button above it.
+/// A row's secondary icons (Edit, Log): quiet grey at rest, brand purple under the pointer, deeper when pressed.
 struct RowIconStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { Icon(configuration: configuration) }
 
@@ -584,7 +579,7 @@ struct RowIconStyle: ButtonStyle {
                 .labelStyle(.iconOnly)
                 .font(.body.weight(.medium))
                 .foregroundStyle(active ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
-                .frame(maxWidth: .infinity, minHeight: 22)
+                .frame(minWidth: 30, minHeight: 22)
                 .background(active ? AnyShapeStyle(Brand.purple.opacity(configuration.isPressed ? 0.2 : 0.12))
                                    : AnyShapeStyle(.quaternary.opacity(0.6)),
                             in: .rect(cornerRadius: 7, style: .continuous))

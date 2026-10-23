@@ -175,7 +175,7 @@ struct MenuBarView: View {
             Button { screen = .pinned } label: { Image(systemName: "pin").frame(width: 22, height: 20) }
                 .help("Pinned")
                 .accessibilityLabel("Pinned")
-            Button { screen = .summary } label: { Image(systemName: "info").frame(width: 22, height: 20) }
+            Button { screen = .summary } label: { Image(systemName: "chart.bar").frame(width: 22, height: 20) }
                 .help("Time Summary")
                 .accessibilityLabel("Time Summary")
             if !store.timers.isEmpty {
@@ -319,6 +319,7 @@ private struct DayCell: View {
         let calendar = Calendar.current
         let isSelected = calendar.isDate(day, inSameDayAs: selected)
         let isToday = calendar.isDateInToday(day)
+        let future = calendar.compare(day, to: .now, toGranularity: .day) == .orderedDescending
         let total = live ? logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) } : logged
         Button { selected = calendar.startOfDay(for: day) } label: {
             VStack(spacing: Space.xs) {
@@ -337,12 +338,14 @@ private struct DayCell: View {
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
+                    .opacity(future ? 0 : 1) // nothing to total yet; still laid out, so the strip keeps its height
             }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
         .onHover { hovering = $0 }
-        .accessibilityLabel("\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
+        .accessibilityLabel(future ? day.formatted(date: .complete, time: .omitted)
+                                   : "\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -395,7 +398,7 @@ struct PinnedList: View {
 }
 
 /// A logged entry in the popover's day list: bold task, project and notes; duration and Start (restart).
-/// An Edit icon appears under Start on hover, as on timer rows; double-click, the context menu and VoiceOver also edit.
+/// An Edit icon appears beside the time on hover, as on timer rows; double-click, the context menu and VoiceOver also edit.
 struct DayEntryRow: View {
     @Environment(Store.self) private var store
     let entry: TimeEntry
@@ -441,7 +444,23 @@ struct DayEntryRow: View {
         let title = task ?? project
         return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
-                TitleLink(title: title, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
+                // Edit shares the title's line, beside the time, as on timer rows. Width kept while hidden, so the
+                // title doesn't rewrap; VoiceOver edits through the row's actions.
+                HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+                    TitleLink(title: title, url: store.webURL(projectId: entry.projectId, taskId: entry.taskId))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if !entry.locked {
+                        Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
+                            .buttonStyle(RowIconStyle())
+                            .help("Edit time, date or notes")
+                            .accessibilityLabel("Edit \(title) entry")
+                            .opacity(hovering ? 1 : 0)
+                            .disabled(!hovering)
+                            .accessibilityHidden(!hovering)
+                            .animation(.easeOut(duration: 0.15), value: hovering)
+                            .frame(height: 0) // overhangs the title's line rather than push the project down
+                    }
+                }
                 if task != nil { Text(project).foregroundStyle(.secondary).lineLimit(1) }
                 if !entry.description.isEmpty {
                     Text(entry.description).font(.callout).foregroundStyle(.secondary).lineLimit(2)
@@ -455,26 +474,11 @@ struct DayEntryRow: View {
                 Text(TimeInterval(entry.minutes * 60).hoursMinutes)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
-                // One column as wide as Start, so Edit spans it, as Edit and Log do on timer rows.
-                VStack(spacing: Space.xs) {
-                    if let item {
-                        Button { start(item) } label: { Label("Start", systemImage: "clock") }
-                            .buttonStyle(StartPauseStyle())
-                            .help("Start a new timer on this task")
-                    }
-                    if !entry.locked {
-                        Button(action: onEdit) { Label("Edit", systemImage: "square.and.pencil") }
-                            .buttonStyle(RowIconStyle())
-                            .help("Edit time, date or notes")
-                            .accessibilityLabel("Edit \(title) entry")
-                            // Space kept while hidden, so rows don't jump; VoiceOver edits through the row's actions.
-                            .opacity(hovering ? 1 : 0)
-                            .disabled(!hovering)
-                            .accessibilityHidden(!hovering)
-                            .animation(.easeOut(duration: 0.15), value: hovering)
-                    }
+                if let item {
+                    Button { start(item) } label: { Label("Start", systemImage: "clock") }
+                        .buttonStyle(StartPauseStyle())
+                        .help("Start a new timer on this task")
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, Space.l)
