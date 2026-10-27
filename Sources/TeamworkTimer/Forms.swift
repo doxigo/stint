@@ -352,7 +352,8 @@ private struct LogRecovery: View {
     @State private var resolving = false
 
     var body: some View {
-        if let status = store.logAttempts[timer.id], !store.isLogging(timer.id) {
+        // Only for a timer still there: a logged one keeps its receipt, and the form would flash this before closing.
+        if let status = store.logAttempts[timer.id], !store.isLogging(timer.id), store.timers.contains(where: { $0.id == timer.id }) {
             VStack(alignment: .leading, spacing: Space.s) {
                 Text(status == .posted ? "This time is already logged. Remove the leftover timer."
                      : "Check Teamwork to see whether this time was logged before choosing an action.")
