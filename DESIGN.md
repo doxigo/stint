@@ -139,13 +139,14 @@ Common patterns from menu bar time trackers that fit this app.
 1. **Timers**: all server timers (running and paused), with a total.
 2. **Today**: time logged today plus timers; day navigation.
 3. **This Week**: 7-day strip with daily totals; "Return to today".
-4. **Pinned**: project + task (+ description, billable) templates.
-5. **Starred Projects**: from Teamwork; expand to task lists and tasks.
-6. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime.
+4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off.
+5. **Pinned**: project + task (+ description, billable) templates.
+6. **Starred Projects**: from Teamwork; expand to task lists and tasks.
+7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime.
 
 **Detail:** a list (content layer, no glass).
 **Inspector** (trailing): edit project, task, description, billable, tags, duration, date.
-**Toolbar:** primary *New Timer* (+), search, Refresh. The sidebar groups pages under Time (Timers, Today, This Week) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
+**Toolbar:** primary *New Timer* (+), search, Refresh. The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
 
 **Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
@@ -163,9 +164,9 @@ Built:
 | Edit | Undo / Redo / Cut / Copy / Paste / Select All | standard |
 | Timer | Pause Timer / Resume Last Timer | ⌘↩ |
 | | Refresh | ⌘R |
-| View | Timers / Today / This Week / Pinned / Starred Projects / My Tasks | ⌘1 … ⌘6 |
+| View | Timers / Today / This Week / This Month / Pinned / Starred Projects / My Tasks | ⌘1 … ⌘7 |
 | | Show Sidebar | ⌃⌘S (system) |
-| Toolbar (Today, Week) | Previous / Next, Go to Today | ⌘[ / ⌘], ⌘T |
+| Toolbar (Today, Week, Month) | Previous / Next, Go to Today | ⌘[ / ⌘], ⌘T |
 | Window | Main Window | ⌘0 |
 | | Minimize, Zoom, Bring All to Front | standard |
 | Popover | Start pinned items 1–9 | ⌘1 … ⌘9 |
@@ -284,7 +285,7 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 | Due Today | Popover section between Pinned and Recent | `tasks.json?responsiblePartyIds&taskFilter=today` |
 | Task links | Paste into the search field, or drop on the popover/window to start | `GET /tasks/{id}.json` |
 | End-of-day reminder | Weekdays from 17:00, once, if timers are left; "Log All…" opens the window | local notification |
-| Edit/delete logged entries | Today/This Week: right-click or double-click a row (locked entries excluded) | `PATCH`/`DELETE /time/{id}.json` |
+| Edit/delete logged entries | Today/This Week/This Month: right-click or double-click a row (locked entries excluded) | `PATCH`/`DELETE /time/{id}.json` |
 | Log All | Popover link (2+ timers), Timers toolbar, end-of-day reminder | sequential `log()` per timer |
 
 All of these are checked visually in the preview build. Task links and the working-day target are covered by `check.sh`. The live requests still need a real run.

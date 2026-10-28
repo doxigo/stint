@@ -110,6 +110,16 @@ let h = 3600.0
 let weekdays = { (length: TimeInterval) in Dictionary(uniqueKeysWithValues: (2...6).map { ($0, length) }) }
 let shortFriday = workingDays(teamwork: [2: 7.5 * h, 3: 7.5 * h, 4: 7.5 * h, 5: 7.5 * h, 6: 6 * h, 7: 0], lengthOfDay: 8 * h, custom: nil)
 check(workTarget(in: week, days: shortFriday, calendar: gregorian) == 36 * h, "week target sums each weekday's hours")
+// This Month loads each week it touches from the per-week cache.
+var mondays = gregorian
+mondays.firstWeekday = 2
+let monthWeeks = { (from: String, to: String) in weekIntervals(covering: DateInterval(start: iso(from), end: iso(to)), calendar: mondays) }
+let october = monthWeeks("2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z")
+check(october.count == 5 && october.first?.start == iso("2026-09-28T00:00:00Z") && october.last?.end == iso("2026-11-02T00:00:00Z"),
+      "October 2026 touches five weeks, from Monday 28 September")
+check(monthWeeks("2027-02-01T00:00:00Z", "2027-03-01T00:00:00Z").count == 4, "a month of whole weeks touches four")
+check(monthWeeks("2027-08-01T00:00:00Z", "2027-09-01T00:00:00Z").count == 6, "a 31-day month from a Sunday touches six")
+check(weekIntervals(covering: friday, calendar: mondays).map(\.start) == [week.start], "a day is in one week")
 check(workTarget(in: friday, days: shortFriday, calendar: gregorian) == 6 * h, "a shorter Friday")
 check(workTarget(in: saturday, days: shortFriday, calendar: gregorian) == nil, "a 0-hour Saturday has no target")
 check(workingDays(teamwork: nil, lengthOfDay: 8 * h, custom: nil) == weekdays(8 * h), "no working hours: lengthOfDay Monday–Friday")

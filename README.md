@@ -31,7 +31,7 @@ Teamwork's own desktop timer is an Electron 4 app that runs under Rosetta and fe
 - **Edit as you go.** Move a running timer to another task, change its notes, billable or tracked time, and edit or delete logged entries.
 - **Idle detection.** Come back from a break and choose to keep the idle time, or remove it and continue or stop.
 - **Reminders.** A nudge at the end of the working day if timers are left, and an alert for timers left running too long.
-- **A library window.** Timers, Today, This Week, Pinned, Starred Projects and My Tasks, with Settings and your account in the same window.
+- **A library window.** Timers, Today, This Week, This Month, Pinned, Starred Projects and My Tasks, with Settings and your account in the same window.
 - **Light and Dark Mode**, in Teamwork's palette.
 
 ## Screenshots
@@ -82,7 +82,7 @@ Credentials are stored in your Keychain. Builds signed without an Apple Develope
 | ⌘N | New timer |
 | ⌘↩ | Pause the running timer, or resume the last one |
 | ⌘1–⌘9 | Start a pinned task (popover) |
-| ⌘1–⌘6 | Switch pages (window) |
+| ⌘1–⌘7 | Switch pages (window) |
 | ← → | Previous or next day (popover) |
 | ⌘0 | Open the main window |
 | ⌘, | Settings |

@@ -32,6 +32,9 @@ try await store.signIn(site: "b.teamwork.com", token: "placeholder")
 await store.refresh()
 check(store.webURL(projectId: 1, taskId: 7)?.absoluteString == "https://b.teamwork.com/app/tasks/7", "without an account address, links open on the API site")
 await store.loadWeek(containing: .now) // this week and last
+let thisMonth = Calendar.current.dateInterval(of: .month, for: .now)!
+await store.loadWeeks(covering: thisMonth)
+check(weekIntervals(covering: thisMonth).allSatisfy { store.weeks[$0.start] != nil }, "a month loads every week it touches")
 state.lock.withLock { state.calls = [] }
 check(await store.logAll(drafts) == [1, 2], "second account logs independently")
 check(state.lock.withLock { state.calls.count == 5 }, "two direct logs use four writes and one shared read")

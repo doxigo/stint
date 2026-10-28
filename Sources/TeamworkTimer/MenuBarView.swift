@@ -502,21 +502,26 @@ extension ShapeStyle where Self == AnyShapeStyle {
     }
 }
 
-/// Full-width list rows, padded like the day list, with a faint brand-purple hover wash.
+/// Full-width list rows, padded like the day list, with a faint brand-purple hover wash. `dense`: one-line
+/// summary rows (This Month's weeks).
 struct RowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration) }
+    var dense = false
+
+    func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration, dense: dense) }
 
     private struct Row: View {
         let configuration: Configuration
+        let dense: Bool
+        @Environment(\.isEnabled) private var isEnabled
         @State private var hovering = false
 
         var body: some View {
             configuration.label
                 .padding(.horizontal, Space.l)
-                .padding(.vertical, Space.s)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .padding(.vertical, dense ? Space.xxs + 2 : Space.s)
+                .frame(maxWidth: .infinity, minHeight: dense ? 0 : 44, alignment: .leading)
                 .contentShape(.rect)
-                .background(Brand.purple.opacity(configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
+                .background(Brand.purple.opacity(!isEnabled ? 0 : configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
                 // Lights up at once under the pointer, fades as it leaves: sweeping a list leaves a short trail.
                 .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
                 .onHover { hovering = $0 }

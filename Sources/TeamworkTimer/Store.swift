@@ -12,17 +12,18 @@ final class Store {
     static let rateLimitStatus = "Teamwork is rate-limiting; retrying…"
 
     enum Section: String, CaseIterable, Identifiable {
-        case timers = "Timers", today = "Today", week = "This Week", pinned = "Pinned"
+        case timers = "Timers", today = "Today", week = "This Week", month = "This Month", pinned = "Pinned"
         case starred = "Starred Projects", tasks = "My Tasks"
         case settings = "Settings", account = "Account"
         var id: Self { self }
         /// The pages that need a signed-in account; Settings and Account sit in the sidebar's footer.
-        static let library: [Section] = [.timers, .today, .week, .pinned, .starred, .tasks]
+        static let library: [Section] = [.timers, .today, .week, .month, .pinned, .starred, .tasks]
         var symbol: String {
             switch self {
             case .timers: "timer"
             case .today: "sun.max"
             case .week: "calendar"
+            case .month: "calendar.badge.clock"
             case .pinned: "pin"
             case .starred: "star"
             case .tasks: "checklist"
@@ -398,6 +399,13 @@ final class Store {
                   start <= .now, weeks[start] == nil,
                   let neighbour = calendar.dateInterval(of: .weekOfYear, for: start) else { continue }
             await fetchWeek(neighbour)
+        }
+    }
+
+    /// Reloads every week a month touches, side by side, so This Month fills from the same cache.
+    func loadWeeks(covering interval: DateInterval) async {
+        await withTaskGroup(of: Void.self) { group in
+            for week in weekIntervals(covering: interval) { group.addTask { await self.fetchWeek(week) } }
         }
     }
 

@@ -249,6 +249,17 @@ func workingDays(teamwork: [Int: TimeInterval]?, lengthOfDay: TimeInterval?, cus
     return days
 }
 
+/// The weeks an interval touches: one for a day or a week, four to six for a month.
+func weekIntervals(covering interval: DateInterval, calendar: Calendar = .current) -> [DateInterval] {
+    var weeks: [DateInterval] = []
+    var day = interval.start
+    while day < interval.end, let week = calendar.dateInterval(of: .weekOfYear, for: day) {
+        weeks.append(week)
+        day = week.end
+    }
+    return weeks
+}
+
 /// Seconds to work in an interval, for daily and weekly targets; nil when it has no working days.
 func workTarget(in interval: DateInterval, days: [Int: TimeInterval], calendar: Calendar = .current) -> TimeInterval? {
     var total: TimeInterval = 0

@@ -20,7 +20,7 @@ Stint uses Teamwork's own server timers: a timer started on the web shows up in 
 
 ## Operating Context
 
-- Lives in the menu bar: live time in the status item, a popover for today (timers, logged time, week strip, daily target), and a main window (Timers, Today, This Week, Pinned, Starred Projects, My Tasks, Settings).
+- Lives in the menu bar: live time in the status item, a popover for today (timers, logged time, week strip, daily target), and a main window (Timers, Today, This Week, This Month, Pinned, Starred Projects, My Tasks, Settings).
 - Sign-in: Sign in with Teamwork, or under Advanced an API token or your own Developer Portal app. Credentials in the macOS Keychain.
 - Distributed as `Stint.dmg` from GitHub Releases; current builds are unsigned, so macOS asks for approval on first open.
 
