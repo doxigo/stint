@@ -209,19 +209,22 @@ struct SectionHeader: View {
     }
 }
 
-/// A starred project that opens its task list; start, pin and unstar from the context menu.
-struct ProjectRow: View {
+/// A starred project that opens its task list; start, pin and unstar from the context menu. `trailing` sits before
+/// the chevron (Starred Projects: the week's time on it).
+struct ProjectRow<Trailing: View>: View {
     @Environment(Store.self) private var store
     let project: Project
     let open: () -> Void
     let start: () -> Void
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         let item = WorkItem(project: project)
         Button(action: open) {
-            HStack {
+            HStack(spacing: Space.s) {
                 Text(project.name).lineLimit(1)
-                Spacer()
+                Spacer(minLength: Space.s)
+                trailing
                 Image(systemName: "chevron.right").font(.callout.weight(.semibold)).foregroundStyle(.tertiary)
             }
         }
@@ -233,6 +236,12 @@ struct ProjectRow: View {
             Button(store.isPinned(item) ? "Unpin Project" : "Pin Project") { store.togglePin(item) }
             Button("Unstar Project") { Task { await store.setStarred(project, false) } }
         }
+    }
+}
+
+extension ProjectRow where Trailing == EmptyView {
+    init(project: Project, open: @escaping () -> Void, start: @escaping () -> Void) {
+        self.init(project: project, open: open, start: start) { EmptyView() }
     }
 }
 
@@ -249,6 +258,10 @@ struct WorkRow: View {
     var showsPin = true
     /// Off inside a project's own task list.
     var showsProject = true
+    /// In place of the project line: My Tasks shows the task list there, its section header names the project.
+    var detail: String?
+    /// Shown before Start: when it's due, or how late (My Tasks).
+    var due: Date?
     var startButton = false
     var log: (() -> Void)?
     let start: () -> Void
@@ -266,7 +279,7 @@ struct WorkRow: View {
                     // Last, so it lines up down the list whatever Start / Resume / Running takes.
                     if let log {
                         Button(action: log) { Label("Log", systemImage: "clock.badge.checkmark") }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(RowIconStyle()) // the timer rows' Log chip
                             .help("Log time without starting a timer")
                             .accessibilityLabel("Log time to \(item.title)")
                     }
@@ -324,14 +337,15 @@ struct WorkRow: View {
             Button(pinned ? "Unpin" : "Pin") { store.togglePin(item) }
             if let url { Link("Open in Teamwork", destination: url) }
         }
-        .accessibilityLabel([item.title, item.subtitle, pinned ? "pinned" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityLabel([item.title, detail ?? item.subtitle, due.map { Self.due($0).spoken }, pinned ? "pinned" : nil]
+            .compactMap { $0 }.joined(separator: ", "))
         .accessibilityAction(named: pinned ? "Unpin" : "Pin") { store.togglePin(item) }
     }
 
     @ViewBuilder private func labels(pinned: Bool, running: Bool, url: URL?) -> some View {
         VStack(alignment: .leading, spacing: Space.xxs / 2) {
             TitleLink(title: item.title, url: url).allowsHitTesting(url != nil)
-            if showsProject, let subtitle = item.subtitle {
+            if let subtitle = detail ?? (showsProject ? item.subtitle : nil) {
                 Text(subtitle).font(.callout).foregroundStyle(.rowSecondary(running)).lineLimit(1).allowsHitTesting(false)
             }
         }
@@ -342,8 +356,37 @@ struct WorkRow: View {
             } else if pinned && showsPin {
                 Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
             }
+            if let due {
+                let label = Self.due(due)
+                Text(label.text)
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(label.late ? AnyShapeStyle(.red) : label.today ? AnyShapeStyle(Brand.purple)
+                                     : AnyShapeStyle(.rowSecondary(running)))
+                    .help(due.formatted(date: .complete, time: .omitted))
+            }
         }
         .allowsHitTesting(false)
+    }
+
+    /// "Today", "Tomorrow", a weekday this week, else the date; past it, how many days late. In words too, so
+    /// lateness isn't colour alone.
+    static func due(_ due: Date, now: Date = .now) -> (text: String, spoken: String, late: Bool, today: Bool) {
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: due)).day ?? 0
+        switch days {
+        case ..<(-1): return ("\(-days) days late", "\(-days) days overdue", true, false)
+        case -1: return ("Yesterday", "due yesterday", true, false)
+        case 0: return ("Today", "due today", false, true)
+        case 1: return ("Tomorrow", "due tomorrow", false, false)
+        case 2...6:
+            let day = due.formatted(.dateTime.weekday(.wide))
+            return (day, "due \(day)", false, false)
+        default:
+            let sameYear = calendar.isDate(due, equalTo: now, toGranularity: .year)
+            let date = sameYear ? due.formatted(.dateTime.day().month(.abbreviated)) : due.formatted(.dateTime.day().month(.abbreviated).year())
+            return (date, "due \(date)", false, false)
+        }
     }
 
     /// Start, or Resume / Running when this work already has a timer (Teamwork allows one per task).
@@ -357,7 +400,7 @@ struct WorkRow: View {
             .accessibilityElement(children: .combine)
         } else {
             Button(action: start) { Label(timer == nil ? "Start" : "Resume", systemImage: "clock") }
-                .buttonStyle(.bordered) // native, like the Log button beside it
+                .buttonStyle(StartPauseStyle()) // grey until hovered, as on timer and day rows: a list of purple Starts was all noise
                 .accessibilityLabel("\(timer == nil ? "Start" : "Resume") \(item.title)")
         }
     }

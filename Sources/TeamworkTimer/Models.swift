@@ -129,12 +129,15 @@ struct TWTask: Decodable, Identifiable, Hashable, Sendable {
     let name: String
     var projectId: Int?
     var tasklistId: Int?
+    var tasklistName: String?
+    /// The start of the local day it's due; Teamwork sends a bare date ("2026-11-06").
+    var dueDate: Date?
 
-    private enum CodingKeys: String, CodingKey { case id, name, projectId, tasklistId, tasklist }
+    private enum CodingKeys: String, CodingKey { case id, name, projectId, tasklistId, tasklist, dueDate }
 
-    /// Tasklist link; its `meta.projectId` names the project without a sideload.
+    /// Tasklist link; its `meta` names the project and the list without a sideload.
     private struct ListRef: Decodable {
-        struct Meta: Decodable { var projectId: Int? }
+        struct Meta: Decodable { var projectId: Int?; var name: String? }
         let id: Int
         var meta: Meta?
     }
@@ -146,7 +149,20 @@ struct TWTask: Decodable, Identifiable, Hashable, Sendable {
         let list = try? c.decodeIfPresent(ListRef.self, forKey: .tasklist)
         projectId = try c.decodeIfPresent(Int.self, forKey: .projectId) ?? list?.meta?.projectId
         tasklistId = try c.decodeIfPresent(Int.self, forKey: .tasklistId) ?? list?.id
+        tasklistName = list?.meta?.name
+        // The first ten characters, so a full timestamp reads as its date too.
+        dueDate = (try? c.decodeIfPresent(String.self, forKey: .dueDate)).flatMap {
+            $0.flatMap { try? Date(String($0.prefix(10)), strategy: Date.ISO8601FormatStyle(timeZone: .current).year().month().day()) }
+        }
     }
+}
+
+/// A task assigned to you, as My Tasks lists it.
+struct AssignedTask: Identifiable, Hashable, Sendable {
+    var item: WorkItem
+    var list: String?
+    var due: Date?
+    var id: String { item.id }
 }
 
 struct Tasklist: Decodable, Identifiable, Sendable {

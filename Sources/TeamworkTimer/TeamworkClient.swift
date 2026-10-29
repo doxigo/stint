@@ -189,11 +189,11 @@ actor TeamworkClient {
         var id: Self { self }
     }
 
-    func myTasks(userId: Int, filter: TaskFilter) async throws -> [WorkItem] {
+    func myTasks(userId: Int, filter: TaskFilter) async throws -> [AssignedTask] {
         try await tasks([
             .init(name: "responsiblePartyIds", value: String(userId)), .init(name: "taskFilter", value: filter.rawValue),
             .init(name: "orderBy", value: "duedate"),
-        ], projectId: nil, projectName: nil)
+        ], projectId: nil, projectName: nil).map { AssignedTask(item: $0.item, list: $0.task.tasklistName, due: $0.task.dueDate) }
     }
 
     // MARK: Projects & tasks
@@ -219,10 +219,11 @@ actor TeamworkClient {
         if let projectId { items.append(.init(name: "projectIds", value: String(projectId))) }
         // Search-as-you-type across every project takes the first page only, like project search: walking all
         // pages could mean dozens of requests per pause in typing. A project's own list stays complete.
-        return try await tasks(items, projectId: projectId, projectName: projectName, allPages: projectId != nil || query.isEmpty)
+        return try await tasks(items, projectId: projectId, projectName: projectName, allPages: projectId != nil || query.isEmpty).map(\.item)
     }
 
-    private func tasks(_ filters: [URLQueryItem], projectId: Int?, projectName: String?, allPages: Bool = true) async throws -> [WorkItem] {
+    private func tasks(_ filters: [URLQueryItem], projectId: Int?, projectName: String?,
+                       allPages: Bool = true) async throws -> [(task: TWTask, item: WorkItem)] {
         let items = filters + [.init(name: "include", value: "projects,tasklists"), .init(name: "pageSize", value: "50")]
         let page = allPages ? try await getPages(TasksResponse.self, "projects/api/v3/tasks.json", items)
                             : try await get(TasksResponse.self, "projects/api/v3/tasks.json", items)
@@ -230,7 +231,7 @@ actor TeamworkClient {
             let listProject = task.tasklistId.flatMap { page.included.tasklists[String($0)]?.projectId }
             guard let pid = task.projectId ?? listProject ?? projectId else { return nil }
             let name = page.included.projects[String(pid)]?.name ?? projectName ?? "Project \(pid)"
-            return WorkItem(projectId: pid, projectName: name, taskId: task.id, taskName: task.name)
+            return (task, WorkItem(projectId: pid, projectName: name, taskId: task.id, taskName: task.name))
         }
     }
 

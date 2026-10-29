@@ -63,6 +63,8 @@ check(try fixture(ProjectsResponse.self, "projects.json").projects.count == 3, "
 let tasks = try fixture(TasksResponse.self, "tasks.json").tasks
 check(tasks.count == 2 && tasks.allSatisfy { $0.projectId == 411598 && $0.tasklistId == 1542561 },
       "real: task's project via tasklist meta")
+check(tasks[0].tasklistName == "Launch"
+      && tasks[0].dueDate == Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 6)), "real: task list name + local due day")
 
 // Typed durations.
 for (input, seconds) in [("1:30", 5400.0), (":45", 2700), ("1.5", 5400), ("1,5", 5400), ("90m", 5400), ("1h30", 5400),

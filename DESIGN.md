@@ -141,14 +141,14 @@ Common patterns from menu bar time trackers that fit this app.
 3. **This Week**: 7-day strip with daily totals; "Return to today".
 4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off.
 5. **Pinned**: project + task (+ description, billable) templates.
-6. **Starred Projects**: from Teamwork; expand to task lists and tasks.
-7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime.
+6. **Starred Projects**: from Teamwork, alphabetical; each with your time on it this week (a bar against the busiest project, billable purple and non-billable grey as on This Month, and the h:mm); click for its tasks.
+7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime; a header per project (in order of its most pressing task), each row with its task list and due date (Today in purple, late in red and in words).
 
 **Detail:** a list (content layer, no glass).
 **Inspector** (trailing): edit project, task, description, billable, tags, duration, date.
 **Toolbar:** primary *New Timer* (+), search, Refresh. The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
 
-**Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
+**Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Every Start is the same grey chip (`StartPauseStyle`) that washes purple under the pointer; only Pause is filled. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
 **Windows:** one main window, plus the status item's popover. (A floating mini timer was built, then removed on 2026-10-20: the menu bar covers it.)
 

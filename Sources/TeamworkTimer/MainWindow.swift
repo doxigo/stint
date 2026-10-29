@@ -710,15 +710,31 @@ struct PinnedView: View {
     }
 }
 
+/// Your starred projects, each with this week's logged time on it: a bar in This Month's colours (billable purple,
+/// non-billable grey) against the busiest project, so the week's spread reads at a glance while the order stays
+/// alphabetical. Projects with nothing this week stay bare.
 struct StarredView: View {
     @Environment(Store.self) private var store
     var body: some View {
         @Bindable var store = store
+        let week = weekTotals()
+        let busiest = week.values.map(\.logged).max() ?? 0
         NavigationStack(path: $store.starredPath) {
             Page {
                 ForEach(store.starred) { project in
                     ProjectRow(project: project, open: { store.starredPath.append(project) },
-                               start: { Task { await store.start(WorkItem(project: project)) } })
+                               start: { Task { await store.start(WorkItem(project: project)) } }) {
+                        if let time = week[project.id] {
+                            TargetBar(logged: time.logged, nonBillable: time.logged - time.billable, timers: 0, target: busiest)
+                                .frame(width: 96)
+                                .help("Billable \(time.billable.hoursMinutes) · Non-billable \((time.logged - time.billable).hoursMinutes)")
+                            Text(time.logged.hoursMinutes)
+                                .fontWeight(.semibold)
+                                .monospacedDigit()
+                                .frame(minWidth: 44, alignment: .trailing)
+                                .accessibilityLabel("\(time.logged.spoken) this week")
+                        }
+                    }
                     RowDivider()
                 }
             }
@@ -729,9 +745,32 @@ struct StarredView: View {
                 }
             }
             .navigationTitle("Starred Projects")
+            .navigationSubtitle(store.starred.isEmpty ? "" : weekSubtitle(week))
             .navigationDestination(for: Project.self) { ProjectTasks(project: $0) }
         }
-        .task { await store.loadStarred() }
+        .task(id: "\(store.logRevision)|\(store.userId ?? 0)") {
+            await store.loadStarred()
+            await store.loadWeek(containing: .now)
+        }
+    }
+
+    /// This week's logged time per starred project, from the week cache Today and the popover share.
+    private func weekTotals() -> [Int: (logged: TimeInterval, billable: TimeInterval)] {
+        guard let week = Calendar.current.dateInterval(of: .weekOfYear, for: .now) else { return [:] }
+        let starred = Set(store.starred.map(\.id))
+        var totals: [Int: (logged: TimeInterval, billable: TimeInterval)] = [:]
+        for entry in store.weeks[week.start] ?? [] {
+            guard let id = entry.projectId, starred.contains(id), entry.minutes > 0 else { continue }
+            let seconds = TimeInterval(entry.minutes * 60)
+            totals[id, default: (0, 0)].logged += seconds
+            if entry.billable { totals[id, default: (0, 0)].billable += seconds }
+        }
+        return totals
+    }
+
+    private func weekSubtitle(_ week: [Int: (logged: TimeInterval, billable: TimeInterval)]) -> String {
+        let total = week.values.reduce(0) { $0 + $1.logged }
+        return total > 0 ? "\(total.hoursMinutes) on these projects this week" : "Nothing logged on these projects this week"
     }
 }
 
@@ -777,18 +816,33 @@ struct ProjectTasks: View {
     }
 }
 
+/// Tasks assigned to you, under a header per project (the rows then name their task list), each with its due date.
 struct MyTasksView: View {
     @Environment(Store.self) private var store
     @AppStorage("myTasksFilter") private var filter = TeamworkClient.TaskFilter.today
-    @State private var items: [WorkItem] = []
+    @State private var items: [AssignedTask] = []
     /// True from the start: false showed "No Tasks" for a frame before the first load began.
     @State private var loading = true
 
+    private struct ProjectGroup: Identifiable {
+        let id: Int
+        let name: String
+        var tasks: [AssignedTask]
+    }
+
     var body: some View {
         Page {
-            ForEach(items) { item in
-                WorkRow(item: item, startButton: true) { Task { await store.start(item) } }
-                RowDivider()
+            ForEach(Self.byProject(items)) { group in
+                Section {
+                    ForEach(group.tasks) { task in
+                        WorkRow(item: task.item, detail: task.list, due: task.due, startButton: true) {
+                            Task { await store.start(task.item) }
+                        }
+                        RowDivider()
+                    }
+                } header: {
+                    SectionHeader(group.name)
+                }
             }
         }
         .overlay {
@@ -801,6 +855,7 @@ struct MyTasksView: View {
         // Switching filter crossfades the list rather than swapping it in one frame.
         .animation(.easeOut(duration: 0.2), value: items.map(\.id))
         .navigationTitle("My Tasks")
+        .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem {
                 Picker("Show", selection: $filter) {
@@ -815,5 +870,28 @@ struct MyTasksView: View {
             if let fetched = await store.myTasks(filter) { items = fetched }
             loading = false
         }
+    }
+
+    /// "13 tasks in 6 projects · 2 overdue"; the overdue count only where the filter doesn't already say so.
+    private var subtitle: String {
+        guard !items.isEmpty else { return "" }
+        let projects = Set(items.map(\.item.projectId)).count
+        var text = "\(items.count) task\(items.count == 1 ? "" : "s") in \(projects) project\(projects == 1 ? "" : "s")"
+        let late = items.filter { $0.due.map { WorkRow.due($0).late } ?? false }.count
+        if late > 0 && filter != .overdue { text += " · \(late) overdue" }
+        return text
+    }
+
+    /// Projects in the order of their first task: Teamwork sorts by due date, so the most pressing project leads.
+    private static func byProject(_ tasks: [AssignedTask]) -> [ProjectGroup] {
+        var groups: [ProjectGroup] = []
+        for task in tasks {
+            if let index = groups.firstIndex(where: { $0.id == task.item.projectId }) {
+                groups[index].tasks.append(task)
+            } else {
+                groups.append(ProjectGroup(id: task.item.projectId, name: task.item.projectName, tasks: [task]))
+            }
+        }
+        return groups
     }
 }

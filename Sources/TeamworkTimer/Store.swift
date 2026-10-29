@@ -426,7 +426,7 @@ final class Store {
         return page.timelogs
     }
 
-    func myTasks(_ filter: TeamworkClient.TaskFilter) async -> [WorkItem]? {
+    func myTasks(_ filter: TeamworkClient.TaskFilter) async -> [AssignedTask]? {
         guard let userId else { return nil }
         return await perform { try await $0.myTasks(userId: userId, filter: filter) }
     }
@@ -741,7 +741,7 @@ final class Store {
     }
 
     func refreshDueToday() async {
-        if let tasks = await myTasks(.today) { dueToday = tasks }
+        if let tasks = await myTasks(.today) { dueToday = tasks.map(\.item) }
     }
 
     func discard(_ timer: TWTimer) async {
