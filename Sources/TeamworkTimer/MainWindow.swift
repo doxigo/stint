@@ -712,13 +712,12 @@ struct PinnedView: View {
 
 struct StarredView: View {
     @Environment(Store.self) private var store
-    @State private var path: [Project] = []
-
     var body: some View {
-        NavigationStack(path: $path) {
+        @Bindable var store = store
+        NavigationStack(path: $store.starredPath) {
             Page {
                 ForEach(store.starred) { project in
-                    ProjectRow(project: project, open: { path.append(project) },
+                    ProjectRow(project: project, open: { store.starredPath.append(project) },
                                start: { Task { await store.start(WorkItem(project: project)) } })
                     RowDivider()
                 }

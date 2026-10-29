@@ -74,7 +74,10 @@ final class Store {
     /// `TimelineView`) spin at 100 % CPU inside a MenuBarExtra label, so the label renders plain text against this instead.
     private(set) var menuBarNow = Date.now
     @ObservationIgnored private var ticker: Task<Void, Never>?
-    var section: Section? = .timers
+    var section: Section? = .timers { didSet { starredPath = [] } }
+    /// The project open under Starred Projects. Kept here so a section change can pop it: a page pushed inside the
+    /// split view's detail column outlives the StarredView that pushed it, and stayed on screen over every other page.
+    var starredPath: [Project] = []
     var showingNewTimer = false
     var showingLogAll = false
     /// Your working hours per weekday and working day (`lengthOfDay`) from Teamwork, in seconds; nil if not set.
