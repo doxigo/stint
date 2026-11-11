@@ -83,6 +83,8 @@ for (typed, shown) in [("5", "5"), ("53", "53"), ("530", "5:30"), ("5:301", "53:
 }
 check(parseDuration("0:00", allowZero: true) == 0 && parseDuration("0", allowZero: true) == 0
       && parseDuration("24:00", allowZero: true) == 86400 && parseDuration("24:01", allowZero: true) == nil, "a timer's time may be 0:00")
+check(isOverADay("64:12") && isOverADay("25h") && !isOverADay("24:00") && !isOverADay("abc") && !isOverADay(""),
+      "over 24 hours is told apart from an unreadable duration")
 
 // Rounding: whole minutes to the step; never to zero.
 let m = { (minutes: Double) in minutes * 60 }

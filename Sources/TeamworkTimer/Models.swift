@@ -383,7 +383,8 @@ enum Rounding: String, CaseIterable, Identifiable, Sendable {
 /// Typed durations: "1:30", "130" or "0130" (h:mm without the colon), ":45", "1.5", "1,5" (hours), "90m",
 /// "1h30", "1h 30m", "2h". A bare number of one or two digits means hours, as in Harvest.
 /// Returns nil for empty, zero (unless `allowZero`) or over-24h input.
-func parseDuration(_ input: String, allowZero: Bool = false) -> TimeInterval? {
+/// `limit` is the longest it accepts: 24 hours, all a Teamwork time entry holds.
+func parseDuration(_ input: String, allowZero: Bool = false, limit: TimeInterval = 24 * 3600) -> TimeInterval? {
     let text = input.lowercased().replacingOccurrences(of: ",", with: ".").filter { !$0.isWhitespace }
     // Digits, separators and unit letters only: rules out "-0:30", "1:-5", hex like "0x2", "1e3".
     guard !text.isEmpty, text.allSatisfy({ $0.isASCII && ($0.isNumber || ".:hrsouminte".contains($0)) }) else { return nil }
@@ -409,7 +410,13 @@ func parseDuration(_ input: String, allowZero: Bool = false) -> TimeInterval? {
     }
 
     let seconds = (hours * 3600).rounded()
-    return (seconds > 0 || allowZero) && seconds <= 24 * 3600 ? seconds : nil
+    return (seconds > 0 || allowZero) && seconds <= limit ? seconds : nil
+}
+
+/// Whether `text` is a duration, only longer than the 24 hours a time entry holds. The forms then say that
+/// instead of faulting how it was typed.
+func isOverADay(_ text: String) -> Bool {
+    parseDuration(text) == nil && parseDuration(text, limit: .infinity) != nil
 }
 
 /// The duration field's formatting as you type: three or four digits get their colon ("530" → "5:30",

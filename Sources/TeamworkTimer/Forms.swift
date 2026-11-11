@@ -74,7 +74,10 @@ struct LogView: View {
 
     private func durationNote(_ seconds: TimeInterval?) -> String? {
         if duration.isEmpty { return "Enter the time to log, like 1:30, 1.5h or 90m." }
-        guard let seconds else { return "Enter a duration like 1:30, 1.5h or 90m." }
+        guard let seconds else {
+            return isOverADay(duration) ? "A time entry holds at most 24 hours. Enter 24:00 or less."
+                                        : "Enter a duration like 1:30, 1.5h or 90m."
+        }
         if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
         guard duration != exactDuration else { return nil }
         return "Tracked \(exactDuration)\(rounding != .off ? " · \(rounding.rawValue.lowercased()) to \(roundingStep) min" : "")"
@@ -148,9 +151,11 @@ struct LogWorkView: View {
 
     private func durationNote(_ seconds: TimeInterval?) -> String? {
         if duration.isEmpty { return "Enter the time to log, like 1:30, 1.5h or 90m." }
-        guard let seconds else { return "Enter a duration like 1:30, 1.5h or 90m." }
-        if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
-        return seconds > 86400 ? "Enter at most 24 hours." : nil
+        guard let seconds else {
+            return isOverADay(duration) ? "A time entry holds at most 24 hours. Enter 24:00 or less."
+                                        : "Enter a duration like 1:30, 1.5h or 90m."
+        }
+        return seconds < 60 ? "Teamwork logs whole minutes; enter at least 1 minute." : nil
     }
 }
 
@@ -265,6 +270,14 @@ struct LogAllView: View {
                         Text("\(rounding.rawValue) to \(roundingStep) min. Edit any duration before logging.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Space.l)
+                            .padding(.vertical, Space.s)
+                    }
+                    if chosen.contains(where: { isOverADay($0.duration) }) {
+                        Text("A time entry holds at most 24 hours. Enter 24:00 or less for the longer timers, or untick them.")
+                            .font(.callout)
+                            .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, Space.l)
                             .padding(.vertical, Space.s)
@@ -467,7 +480,9 @@ struct EditEntryView: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 if (seconds ?? 0) < 60 {
-                    Text("Enter at least 1 minute, like 1:30, 1.5h or 90m.").font(.callout).foregroundStyle(.red)
+                    Text(isOverADay(duration) ? "A time entry holds at most 24 hours. Enter 24:00 or less."
+                                              : "Enter at least 1 minute, like 1:30, 1.5h or 90m.")
+                        .font(.callout).foregroundStyle(.red)
                 }
                 HStack(spacing: Space.xs) {
                     DayButton(date: start, open: $choosingDay)

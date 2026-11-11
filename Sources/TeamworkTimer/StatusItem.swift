@@ -71,7 +71,7 @@ import SwiftUI
         let defaults = UserDefaults.standard
         let style = defaults.string(forKey: "menuBarStyle").flatMap(MenuBarStyle.init) ?? .time
         guard let timer = store.activeTimer else {
-            return show(Self.symbol("timer"), title: "", label: "Teamwork Timer", in: button)
+            return show(Self.symbol("timer"), title: "", label: "Stint", in: button)
         }
         let state = timer.running ? "Running" : "Paused"
         // Shape, not just colour, tells running from paused: pause while running, as in Harvest.

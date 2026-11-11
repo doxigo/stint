@@ -197,6 +197,21 @@ struct NewTimerSheet: View {
     }
 }
 
+/// In place of a page's rows when its first load failed: says so and retries. The reason is in the error banner.
+struct LoadFailed: View {
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Couldn't Load", systemImage: "wifi.exclamationmark")
+        } description: {
+            Text("Teamwork couldn't be reached. Check your connection and try again.")
+        } actions: {
+            Button("Try Again", action: retry)
+        }
+    }
+}
+
 /// A main-window page in the popover's language: full-width rows, inset dividers, small-caps headers
 /// that stay pinned while scrolling.
 struct Page<Content: View>: View {
@@ -395,13 +410,7 @@ struct EntriesView: View {
         .overlay {
             if weekEntries == nil {
                 if loadFailed {
-                    ContentUnavailableView {
-                        Label("Couldn't Load", systemImage: "wifi.exclamationmark")
-                    } description: {
-                        Text("Teamwork couldn't be reached. Check your connection and try again.")
-                    } actions: {
-                        Button("Try Again") { Task { await load() } }
-                    }
+                    LoadFailed { Task { await load() } }
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -898,6 +907,10 @@ struct MyTasksView: View {
     @State private var items: [AssignedTask] = []
     /// True from the start: false showed "No Tasks" for a frame before the first load began.
     @State private var loading = true
+    /// The filter `items` were fetched for, so one filter's tasks never sit under another's tab.
+    @State private var shownFilter: TeamworkClient.TaskFilter?
+    /// The last load failed with nothing to show: the page offers a retry rather than "No Tasks".
+    @State private var failed = false
 
     private struct ProjectGroup: Identifiable {
         let id: Int
@@ -923,6 +936,8 @@ struct MyTasksView: View {
         .overlay {
             if items.isEmpty && loading {
                 ProgressView().controlSize(.small) // as on the other pages that load
+            } else if items.isEmpty && failed {
+                LoadFailed { Task { await load() } }
             } else if items.isEmpty {
                 ContentUnavailableView("No Tasks", systemImage: "checklist", description: Text("Nothing assigned to you here."))
             }
@@ -939,12 +954,24 @@ struct MyTasksView: View {
                 .pickerStyle(.segmented)
             }
         }
-        // Also once the user ID arrives: right after launch or sign-in it can still be loading.
-        .task(id: "\(filter)|\(store.userId ?? 0)") {
-            loading = true
-            if let fetched = await store.myTasks(filter) { items = fetched }
-            loading = false
+        // Also once the user ID arrives (right after launch or sign-in it can still be loading), and after a log
+        // or ⌘R: a task marked complete while logging leaves the list.
+        .task(id: "\(filter)|\(store.userId ?? 0)|\(store.logRevision)") { await load() }
+    }
+
+    private func load() async {
+        loading = true
+        let fetched = await store.myTasks(filter)
+        guard !Task.isCancelled else { return }
+        if let fetched {
+            items = fetched
+            shownFilter = filter
+        } else if shownFilter != filter {
+            items = []
         }
+        // Without a user ID nothing was asked; the load runs again when it arrives.
+        failed = fetched == nil && store.userId != nil
+        loading = false
     }
 
     /// "13 tasks in 6 projects · 2 overdue"; the overdue count only where the filter doesn't already say so.
