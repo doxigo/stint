@@ -138,8 +138,8 @@ Common patterns from menu bar time trackers that fit this app.
 **Main window: sidebar sections (stable order, for muscle memory)**
 1. **Timers**: all server timers (running and paused), with a total.
 2. **Today**: time logged today plus timers; day navigation.
-3. **This Week**: 7-day strip with daily totals; "Return to today".
-4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off.
+3. **This Week**: 7-day strip with daily totals; "Return to today". A toolbar field filters the entries by task, project or notes (⌘F); filtered, the chart and timers step aside and day headers show the matched time.
+4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off. The same filter field as This Week.
 5. **Pinned**: project + task (+ description, billable) templates.
 6. **Starred Projects**: from Teamwork, alphabetical; each with your time on it this week (a bar against the busiest project, billable purple and non-billable grey as on This Month, and the h:mm); click for its tasks.
 7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime; a header per project (in order of its most pressing task), each row with its task list and due date (Today in purple, late in red and in words).
@@ -167,6 +167,7 @@ Built:
 | View | Timers / Today / This Week / This Month / Pinned / Starred Projects / My Tasks | ⌘1 … ⌘7 |
 | | Show Sidebar | ⌃⌘S (system) |
 | Toolbar (Today, Week, Month) | Previous / Next, Go to Today | ⌘[ / ⌘], ⌘T |
+| Toolbar (Week, Month) | Filter entries | ⌘F |
 | Window | Main Window | ⌘0 |
 | | Minimize, Zoom, Bring All to Front | standard |
 | Popover | Start pinned items 1–9 | ⌘1 … ⌘9 |

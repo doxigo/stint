@@ -276,5 +276,12 @@ check(MenuBarBadge.image(running: true, highlight: true, text: "Fix login  1:30"
 // Updates compare versions numerically, and never go sideways or back.
 check(Updater.isNewer("0.5.10", than: "0.5.9") && Updater.isNewer("1.0", than: "0.9.9"), "newer versions, numerically")
 check(!Updater.isNewer("0.5.4", than: "0.5.4") && !Updater.isNewer("0.5.3", than: "0.5.4"), "same or older isn't an update")
+// The This Week / This Month filter: every word, in any field, in any order, ignoring case and accents.
+let filterFields = ["Fix nav", "Website", "Café menu review"]
+check(matchesFilter("", fields: filterFields) && matchesFilter("   ", fields: filterFields), "an empty filter matches everything")
+check(matchesFilter("NAV", fields: filterFields) && matchesFilter("cafe", fields: filterFields), "a filter ignores case and accents")
+check(matchesFilter("website fix", fields: filterFields), "filter words can sit in different fields, in any order")
+check(!matchesFilter("website invoice", fields: filterFields), "every filter word has to match")
+check(!matchesFilter("nav", fields: []), "an entry with nothing to search matches no word")
 print(failed == 0 ? "All checks passed." : "\(failed) check(s) failed.")
 exit(failed == 0 ? 0 : 1)

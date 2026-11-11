@@ -284,6 +284,9 @@ struct EntriesView: View {
     @State private var sheet: TimerSheet?
     @State private var editingEntry: TimeEntry?
     @State private var position = ScrollPosition(idType: Date.self)
+    /// Typed in the toolbar's filter field (This Week and This Month).
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
 
     private var calendar: Calendar { .current }
     private var interval: DateInterval { calendar.dateInterval(of: span, for: anchor)! }
@@ -304,8 +307,20 @@ struct EntriesView: View {
     /// No entries and, in the current period, no timers either.
     private var isEmpty: Bool { entries.isEmpty && !(isCurrent && !store.timers.isEmpty) }
 
+    /// The filter as applied; always empty on Today, which has no field.
+    private var filter: String { span == .day ? "" : query.trimmingCharacters(in: .whitespaces) }
+    private var filtering: Bool { !filter.isEmpty }
+    /// The entries listed: all of them, or those whose task, project or notes match the filter.
+    private var shown: [TimeEntry] {
+        guard filtering else { return entries }
+        return entries.filter { entry in
+            matchesFilter(filter, fields: [entry.taskId.flatMap(store.taskName), entry.projectId.map(store.projectName),
+                                           entry.description].compactMap { $0 })
+        }
+    }
+
     private var days: [(day: Date, entries: [TimeEntry])] {
-        Dictionary(grouping: entries) { calendar.startOfDay(for: $0.timeLogged ?? interval.start) }
+        Dictionary(grouping: shown) { calendar.startOfDay(for: $0.timeLogged ?? interval.start) }
             .sorted { $0.key > $1.key }
             .map { ($0.key, $0.value.sorted { ($0.timeLogged ?? .distantPast) < ($1.timeLogged ?? .distantPast) }) }
     }
@@ -323,13 +338,13 @@ struct EntriesView: View {
     var body: some View {
         Page {
             if span == .weekOfYear {
-                if weekEntries != nil && !isEmpty {
+                if weekEntries != nil && !isEmpty && !filtering {
                     WeekChart(week: interval, entries: entries) { day in
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
                 }
             } else if span == .month {
-                if weekEntries != nil && !isEmpty {
+                if weekEntries != nil && !isEmpty && !filtering {
                     MonthWeeks(month: interval, entries: entries) { day in
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
@@ -339,7 +354,7 @@ struct EntriesView: View {
                     .padding(.horizontal, Space.l)
                     .padding(.top, Space.m)
             }
-            if isCurrent && !store.timers.isEmpty {
+            if isCurrent && !store.timers.isEmpty && !filtering {
                 Section { TimerList(sheet: $sheet) } header: { SectionHeader("Timers") }
             }
             ForEach(days, id: \.day) { group in
@@ -351,8 +366,10 @@ struct EntriesView: View {
                 } header: {
                     let logged = TimeInterval(group.entries.reduce(0) { $0 + $1.minutes } * 60)
                     let goal = store.target(in: calendar.dateInterval(of: .day, for: group.day)!)
+                    // Filtered, the day's target says nothing about the matches: only their time.
                     SectionHeader(group.day.formatted(.dateTime.weekday(.wide).month().day()),
-                                  trailing: goal.map { "\(logged.hoursMinutes) / \($0.hoursMinutes)" } ?? logged.hoursMinutes)
+                                  trailing: filtering ? logged.hoursMinutes
+                                      : goal.map { "\(logged.hoursMinutes) / \($0.hoursMinutes)" } ?? logged.hoursMinutes)
                 }
             }
         }
@@ -374,6 +391,8 @@ struct EntriesView: View {
         .overlay {
             if weekEntries == nil {
                 ProgressView().controlSize(.small)
+            } else if filtering && shown.isEmpty {
+                ContentUnavailableView.search(text: filter)
             } else if isEmpty {
                 ContentUnavailableView("Nothing Logged", systemImage: "clock", description: Text("Time you log shows up here."))
             }
@@ -384,7 +403,17 @@ struct EntriesView: View {
         // Timers only: entries also change on ⌘[ ⌘] steps, which stay instant.
         .glidingRows(store.timers.map(\.id))
         .navigationTitle(title)
-        .background { EntriesSubtitle(logged: total, target: target, live: span == .day && isCurrent) }
+        .entryFilter($query, focused: $filterFocused, enabled: span != .day)
+        .background {
+            if filtering {
+                // "3 of 41 entries · 4:15": how much of the period the filter found.
+                let matched = TimeInterval(shown.reduce(0) { $0 + $1.minutes } * 60)
+                Color.clear.navigationSubtitle(
+                    "\(shown.count) of \(entries.count) \(entries.count == 1 ? "entry" : "entries") · \(matched.hoursMinutes)")
+            } else {
+                EntriesSubtitle(logged: total, target: target, live: span == .day && isCurrent)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Previous", systemImage: "chevron.left") { step(-1) }
@@ -430,6 +459,22 @@ struct EntriesView: View {
     private func start(_ item: WorkItem) {
         anchor = calendar.startOfDay(for: .now)
         Task { await store.start(item) }
+    }
+}
+
+private extension View {
+    /// The toolbar's filter field on This Week and This Month (Today has none); ⌘F puts the cursor in it and
+    /// Esc clears it. `enabled` never changes for a page, so the branch keeps the view's identity.
+    @ViewBuilder func entryFilter(_ text: Binding<String>, focused: FocusState<Bool>.Binding, enabled: Bool) -> some View {
+        if enabled {
+            searchable(text: text, prompt: "Filter by task, project or notes")
+                .searchFocused(focused)
+                .background {
+                    Button("Filter Entries") { focused.wrappedValue = true }.keyboardShortcut("f").hidden()
+                }
+        } else {
+            self
+        }
     }
 }
 

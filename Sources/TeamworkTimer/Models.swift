@@ -349,6 +349,12 @@ private func verifiedCallback(_ items: [URLQueryItem]?, state: String) -> [Strin
     return query
 }
 
+/// Whether something answers a typed filter: every word of `query` appears in at least one of `fields` (an entry's
+/// task, project and notes), in any order, ignoring case and accents. An empty query matches everything.
+func matchesFilter(_ query: String, fields: [String]) -> Bool {
+    query.split(whereSeparator: \.isWhitespace).allSatisfy { word in fields.contains { $0.localizedStandardContains(word) } }
+}
+
 /// Automatic rounding of logged time (Settings › General › Time Logs).
 enum Rounding: String, CaseIterable, Identifiable, Sendable {
     case off = "Off"
