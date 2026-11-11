@@ -83,6 +83,9 @@ if [ -n "${SIGNING_IDENTITY:-}" ]; then
     fi
     xcrun stapler staple "$archive"
     xcrun stapler validate "$archive"
+    # What Stint updates itself from (Updater.swift): unpacked without mounting an image.
+    xcrun stapler staple "$app"
+    ditto -c -k --keepParent "$app" build/Stint.zip
     echo "$archive"
     exit 0
 fi
@@ -93,6 +96,7 @@ if [ -n "${UNSIGNED_RELEASE:-}" ]; then
     codesign --verify --deep --strict "$app"
     archive="build/Stint.dmg"
     make_dmg "$archive"
+    ditto -c -k --keepParent "$app" build/Stint.zip # what Stint updates itself from (Updater.swift)
     echo "$archive"
     exit 0
 fi

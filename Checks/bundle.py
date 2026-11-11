@@ -65,6 +65,7 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     assert 'codesign --force --sign -' in calls, 'explicit unsigned release is ad-hoc signed'
     assert 'notarytool' not in calls and 'stapler' not in calls, 'unsigned release never claims notarization'
     assert (root / 'build/Stint.dmg').exists(), 'unsigned release produces the disk image'
+    assert (root / 'build/Stint.zip').exists(), 'and the zip Stint updates itself from'
     (root / 'calls').unlink()
     # A local install keeps the installed Stint's built-in client; releases and explicit env vars never take it.
     (root / '.signing').mkdir()
@@ -115,6 +116,7 @@ if name == 'xcrun' and 'notarytool' in sys.argv and os.environ.get('FAIL_NOTARY'
     staple = next(i for i, line in enumerate(calls) if 'stapler staple build/Stint.dmg' in line)
     validate = next(i for i, line in enumerate(calls) if 'stapler validate build/Stint.dmg' in line)
     assert image < signed < submit < staple < validate, 'disk image is signed, then notarized, then stapled'
+    assert (root / 'build/Stint.zip').exists() and any(line.startswith('ditto -c -k') for line in calls[validate:]), 'the update zip is made from the notarized app'
     assert '--options runtime' in calls[next(i for i, line in enumerate(calls) if line.startswith('codesign --force'))], 'app is signed with the hardened runtime first'
 # The app takes its sign-in redirect (appRedirect in Models.swift); the repo never carries a client.
 source = plistlib.loads(Path('Info.plist').read_bytes())

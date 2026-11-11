@@ -283,6 +283,11 @@ check(MenuBarBadge.image(running: true, highlight: true, text: "Fix login  1:30"
 // Updates compare versions numerically, and never go sideways or back.
 check(Updater.isNewer("0.5.10", than: "0.5.9") && Updater.isNewer("1.0", than: "0.9.9"), "newer versions, numerically")
 check(!Updater.isNewer("0.5.4", than: "0.5.4") && !Updater.isNewer("0.5.3", than: "0.5.4"), "same or older isn't an update")
+// An update installs from the zip when a release has one (no image to mount), else from the disk image.
+let asset = { (name: String) in Updater.Release.Asset(name: name, browserDownloadUrl: URL(string: "https://example.com/\(name)")!, digest: nil) }
+check(Updater.Release(tagName: "v1", assets: [asset("Stint.dmg"), asset("Stint.zip")]).archive?.name == "Stint.zip"
+      && Updater.Release(tagName: "v1", assets: [asset("Stint.dmg")]).archive?.name == "Stint.dmg"
+      && Updater.Release(tagName: "v1", assets: []).archive == nil, "an update prefers the zip, else the disk image")
 // The This Week / This Month filter: every word, in any field, in any order, ignoring case and accents.
 let filterFields = ["Fix nav", "Website", "Café menu review"]
 check(matchesFilter("", fields: filterFields) && matchesFilter("   ", fields: filterFields), "an empty filter matches everything")

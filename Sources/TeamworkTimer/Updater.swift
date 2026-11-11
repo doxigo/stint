@@ -23,7 +23,12 @@ final class Updater {
         let tagName: String
         let assets: [Asset]
         var version: String { tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName }
-        var disk: Asset? { assets.first { $0.name.hasSuffix(".dmg") } }
+        /// What an update installs from: the zip, else the disk image (all that releases up to 0.6.3 have).
+        /// The zip unpacks without mounting anything; macOS can refuse Stint the files of a mounted image
+        /// (a removable volume, under Privacy & Security), which stopped updates with a permission error.
+        var archive: Asset? {
+            assets.first { $0.name.hasSuffix(".zip") } ?? assets.first { $0.name.hasSuffix(".dmg") }
+        }
     }
 
     static let shared = Updater()
@@ -95,7 +100,7 @@ final class Updater {
             guard !app.path.contains("/AppTranslocation/") else {
                 throw Failure("Move Stint to your Applications folder to install updates.")
             }
-            guard let disk = release.disk else { throw Failure("Version \(release.version) has no disk image.") }
+            guard let disk = release.archive else { throw Failure("Version \(release.version) has nothing to install from.") }
             let (download, _) = try await Self.session.download(from: disk.browserDownloadUrl)
             // Next to the installed app, on its volume, so the swap below is a rename.
             let folder = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
@@ -136,13 +141,22 @@ final class Updater {
             let hash = SHA256.hash(data: try Data(contentsOf: image)).map { String(format: "%02x", $0) }.joined()
             guard digest == "sha256:\(hash)" else { throw Failure("The download was damaged; Stint will try again later.") }
         }
-        let mount = folder.appending(path: "mount")
-        try run("/usr/bin/hdiutil", "attach", image.path, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path)
-        defer { try? run("/usr/bin/hdiutil", "detach", mount.path, "-force") }
-        guard let app = try FileManager.default.contentsOfDirectory(at: mount, includingPropertiesForKeys: nil)
-            .first(where: { $0.pathExtension == "app" }) else { throw Failure("The disk image has no app in it.") }
-        let staged = folder.appending(path: app.lastPathComponent)
-        try FileManager.default.copyItem(at: app, to: staged)
+        let staged: URL
+        if image.pathExtension == "zip" {
+            let unpacked = folder.appending(path: "unpacked")
+            try run("/usr/bin/ditto", "-x", "-k", image.path, unpacked.path)
+            guard let app = try FileManager.default.contentsOfDirectory(at: unpacked, includingPropertiesForKeys: nil)
+                .first(where: { $0.pathExtension == "app" }) else { throw Failure("The update has no app in it.") }
+            staged = app
+        } else {
+            let mount = folder.appending(path: "mount")
+            try run("/usr/bin/hdiutil", "attach", image.path, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path)
+            defer { try? run("/usr/bin/hdiutil", "detach", mount.path, "-force") }
+            // ditto reads the image, not Stint: see `Release.archive`.
+            staged = folder.appending(path: "Stint.app")
+            do { try run("/usr/bin/ditto", mount.appending(path: "Stint.app").path, staged.path) }
+            catch { throw Failure("macOS didn't let Stint read the update. Allow Removable Volumes for Stint in System Settings › Privacy & Security › Files and Folders, or download the new version from GitHub.") }
+        }
         let version = Bundle(url: staged)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         guard isNewer(version, than: current) else { throw Failure("The update is version \(version), not newer than \(current).") }
         try verify(staged)
