@@ -419,6 +419,13 @@ func isOverADay(_ text: String) -> Bool {
     parseDuration(text) == nil && parseDuration(text, limit: .infinity) != nil
 }
 
+/// What a log form submits for a timer: the typed duration, or, left exactly as the form opened it on a timer
+/// that ran past 24 hours, the tracked time itself. Untouched, the timer goes through Teamwork's own "complete",
+/// which isn't held to an entry's 24 hours; anything typed is.
+func loggedSeconds(typed: String, opened: String, tracked: TimeInterval) -> TimeInterval? {
+    parseDuration(typed) ?? (typed == opened && tracked > 24 * 3600 ? tracked : nil)
+}
+
 /// The duration field's formatting as you type: three or four digits get their colon ("530" → "5:30",
 /// "1230" → "12:30", and deleting from "12:30" gives "1:23"). Anything else stays as typed (":45", "1.5h");
 /// a fifth digit is refused, keeping `previous`.

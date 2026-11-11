@@ -19,11 +19,13 @@ struct LogView: View {
     @State private var duration = ""
     /// Tracked time when the form opened, before rounding.
     @State private var exactDuration = ""
+    /// The same in seconds, for a timer that ran past 24 hours and is logged as it stands (`loggedSeconds`).
+    @State private var exactSeconds: TimeInterval = 0
     @State private var description = ""
     @State private var billable = false
     @State private var markComplete = false
     @State private var saving = false
-    private var seconds: TimeInterval? { parseDuration(duration) }
+    private var seconds: TimeInterval? { loggedSeconds(typed: duration, opened: exactDuration, tracked: exactSeconds) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,6 +67,7 @@ struct LogView: View {
         .onAppear {
             let tracked = store.elapsed(timer)
             exactDuration = tracked.hoursMinutes
+            exactSeconds = tracked
             // Under a minute tracked (e.g. a timer used as a placeholder): ask for the time instead of showing 0:00.
             duration = tracked < 60 ? "" : rounding.apply(tracked, step: roundingStep).hoursMinutes
             description = timer.description
@@ -79,7 +82,9 @@ struct LogView: View {
                                         : "Enter a duration like 1:30, 1.5h or 90m."
         }
         if seconds < 60 { return "Teamwork logs whole minutes; enter at least 1 minute." }
-        guard duration != exactDuration else { return nil }
+        guard duration != exactDuration else {
+            return seconds > 86_400 ? "This timer ran past 24 hours. Log it as it stands, or type 24:00 or less." : nil
+        }
         return "Tracked \(exactDuration)\(rounding != .off ? " · \(rounding.rawValue.lowercased()) to \(roundingStep) min" : "")"
     }
 }
@@ -244,10 +249,14 @@ struct LogAllView: View {
     struct Draft: Identifiable {
         let timer: TWTimer
         let exact: String
+        /// The tracked time in seconds when the form opened.
+        let tracked: TimeInterval
         var duration: String
         var billable: Bool
         var included = true
         var id: Int { timer.id }
+        /// What this row logs (`loggedSeconds`): the typed duration, or the timer as it stands past 24 hours.
+        var seconds: TimeInterval? { loggedSeconds(typed: duration, opened: exact, tracked: tracked) }
     }
 
     @State private var drafts: [Draft] = []
@@ -255,8 +264,8 @@ struct LogAllView: View {
     private var chosen: [Draft] { drafts.filter(\.included) }
 
     var body: some View {
-        let valid = chosen.allSatisfy { (parseDuration($0.duration) ?? 0) >= 60 }
-        let total = chosen.compactMap { parseDuration($0.duration) }.reduce(0, +)
+        let valid = chosen.allSatisfy { ($0.seconds ?? 0) >= 60 }
+        let total = chosen.compactMap(\.seconds).reduce(0, +)
         VStack(spacing: 0) {
             ScreenHeader("Log All", back: done)
             ScrollView {
@@ -274,7 +283,7 @@ struct LogAllView: View {
                             .padding(.horizontal, Space.l)
                             .padding(.vertical, Space.s)
                     }
-                    if chosen.contains(where: { isOverADay($0.duration) }) {
+                    if chosen.contains(where: { $0.seconds == nil && isOverADay($0.duration) }) {
                         Text("A time entry holds at most 24 hours. Enter 24:00 or less for the longer timers, or untick them.")
                             .font(.callout)
                             .foregroundStyle(.red)
@@ -294,7 +303,7 @@ struct LogAllView: View {
                     saving = true
                     Task {
                         let entries = chosen.compactMap { draft in
-                            parseDuration(draft.duration).map { (draft.timer, $0, draft.duration != draft.exact, draft.billable) }
+                            draft.seconds.map { (draft.timer, $0, draft.duration != draft.exact, draft.billable) }
                         }
                         let logged = await store.logAll(entries)
                         drafts.removeAll { logged.contains($0.id) }
@@ -320,7 +329,7 @@ struct LogAllView: View {
     private func makeDrafts() {
         drafts = store.timers.map { timer in
             let tracked = store.elapsed(timer)
-            return Draft(timer: timer, exact: tracked.hoursMinutes,
+            return Draft(timer: timer, exact: tracked.hoursMinutes, tracked: tracked,
                          duration: rounding.apply(tracked, step: roundingStep).hoursMinutes, billable: timer.billable)
         }
     }

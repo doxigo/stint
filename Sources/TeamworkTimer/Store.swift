@@ -574,12 +574,23 @@ final class Store {
         let dayStart = calendar.startOfDay(for: day)
         let end = dayStart.addingTimeInterval(Date.now.timeIntervalSince(calendar.startOfDay(for: .now)))
         let start = max(dayStart, end.addingTimeInterval(-seconds))
-        // ponytail: no receipt as timers keep; a retry after an ambiguous failure (5xx, timeout) can log twice.
-        let posted: Void? = await perform {
-            try await $0.logTime(projectId: item.projectId, taskId: item.taskId, seconds: seconds, start: start,
-                                 description: description, billable: billable, markTaskComplete: markTaskComplete)
+        // ponytail: no receipt as timers keep, so nothing stops a second post. An answer that never came (timeout,
+        // dropped connection, 5xx) is told apart from a refusal, and the form says the time may be logged already.
+        // The outer nil: refused or failed outright (`perform` showed why). A message inside: sent, unconfirmed.
+        let unconfirmed: String?? = await perform { client -> String? in
+            do {
+                try await client.logTime(projectId: item.projectId, taskId: item.taskId, seconds: seconds, start: start,
+                                         description: description, billable: billable, markTaskComplete: markTaskComplete)
+                return nil
+            } catch where Self.mayHaveLanded(error) {
+                return error.localizedDescription
+            }
         }
-        guard sessionID == session, posted != nil else { return false }
+        guard sessionID == session, let unconfirmed else { return false }
+        if let unconfirmed {
+            errorMessage = "\(unconfirmed) The time may have been logged all the same: check Teamwork before trying again."
+            return false
+        }
         logRevision += 1
         remember(item)
         showToast("Logged \(seconds.hoursMinutes) to \(item.title)")
@@ -702,6 +713,9 @@ final class Store {
     /// Moves a timer to another project/task and/or edits its notes; `seconds` sets its tracked time from now on.
     func edit(_ timer: TWTimer, target: WorkItem?, description: String, billable: Bool,
               seconds: TimeInterval? = nil) async -> Bool {
+        // The form holds the timer as it was when it opened. Whether it runs *now* decides how its time is set
+        // (pause, set, resume), so a timer paused meanwhile isn't started again by saving.
+        let timer = timers.first { $0.id == timer.id } ?? timer
         let sent = Date.now
         let ok: Void? = await perform {
             try await $0.update(timer, target: target, description: description, billable: billable, seconds: seconds)
@@ -887,6 +901,14 @@ final class Store {
             if self.client === client, !Self.isCancellation(error), !Task.isCancelled { errorMessage = error.localizedDescription }
             return nil
         }
+    }
+
+    /// Whether a failed write may still have reached Teamwork: its answer timed out or was cut off, or the server
+    /// erred (5xx). Not a refusal (4xx), a request cancelled, or one that never left (offline).
+    private static func mayHaveLanded(_ error: any Error) -> Bool {
+        if let api = error as? APIError { return !(400..<500).contains(api.status) || api.status == 408 }
+        if let url = error as? URLError { return url.code == .timedOut || url.code == .networkConnectionLost }
+        return false
     }
 
     private static func isCancellation(_ error: any Error) -> Bool {

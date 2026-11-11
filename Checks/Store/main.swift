@@ -213,6 +213,11 @@ check(store.logRevision == revision + 1 && store.recents.first?.sameTarget(as: w
       && store.toast?.message == "Logged 1:15 to Write the spec", "a direct log reloads lists, joins Recents and confirms")
 check(await !store.log(work, seconds: 30, on: .now, description: "", billable: false, markTaskComplete: false)
       && state.lock.withLock { state.posts[7] == 1 }, "under a minute is refused before posting")
+state.lock.withLock { state.mode = "uncertain" }
+check(await !store.log(work, seconds: 4500, on: yesterday, description: "", billable: false, markTaskComplete: false)
+      && store.errorMessage?.contains("may have been logged") == true, "a log Teamwork didn't confirm says it may have gone through")
+state.lock.withLock { state.mode = "normal" }
+store.errorMessage = nil
 state.lock.withLock { state.delay = false }
 try store.signOut()
 
@@ -264,6 +269,20 @@ check(near(store.adjustments[2]?.seconds ?? 0, 600) && near(store.elapsed(timer(
 check(state.lock.withLock { state.calls.filter { $0.contains(" PUT ") }.map { $0.split(separator: "/").last! } }
       == ["pause.json?page=1", "2.json?page=1", "resume.json?page=1", "pause.json?page=1"] && !timer(2).running,
       "a refused edit resumes the timer, and Remove and Stop pauses it")
+try store.signOut()
+state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
+
+// An edit saved from a form opened while the timer ran, after it was paused elsewhere: it stays paused.
+state.lock.withLock { state.removed = []; state.running = [2: .now.addingTimeInterval(-3600)] }
+try await store.signIn(site: "stale.teamwork.com", token: "placeholder")
+await store.refresh()
+let opened = timer(2) // running when the form opened
+await store.toggle(opened) // paused from the menu bar meanwhile
+state.lock.withLock { state.calls = [] }
+check(await store.edit(opened, target: nil, description: "", billable: false, seconds: 900) && !timer(2).running,
+      "an edit saved after the timer was paused elsewhere leaves it paused")
+check(state.lock.withLock { state.calls.filter { $0.contains(" PUT ") }.map { $0.split(separator: "/").last! } } == ["2.json?page=1"],
+      "it sets the time alone, with no pause or resume")
 try store.signOut()
 state.lock.withLock { state.mode = "normal"; state.running = [:]; state.durations = [:] }
 

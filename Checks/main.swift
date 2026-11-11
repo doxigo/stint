@@ -85,6 +85,11 @@ check(parseDuration("0:00", allowZero: true) == 0 && parseDuration("0", allowZer
       && parseDuration("24:00", allowZero: true) == 86400 && parseDuration("24:01", allowZero: true) == nil, "a timer's time may be 0:00")
 check(isOverADay("64:12") && isOverADay("25h") && !isOverADay("24:00") && !isOverADay("abc") && !isOverADay(""),
       "over 24 hours is told apart from an unreadable duration")
+check(loggedSeconds(typed: "49:12", opened: "49:12", tracked: 177_150) == 177_150, "a timer past 24 hours logs as it stands when untouched")
+check(loggedSeconds(typed: "49:13", opened: "49:12", tracked: 177_150) == nil && loggedSeconds(typed: "24:00", opened: "49:12", tracked: 177_150) == 86_400,
+      "typed, a duration is held to 24 hours")
+check(loggedSeconds(typed: "1:30", opened: "1:30", tracked: 5_430) == 5_400 && loggedSeconds(typed: "", opened: "", tracked: 30) == nil,
+      "under 24 hours a log form submits what its field says")
 
 // Rounding: whole minutes to the step; never to zero.
 let m = { (minutes: Double) in minutes * 60 }
