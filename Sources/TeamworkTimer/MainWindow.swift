@@ -296,7 +296,7 @@ struct EntriesView: View {
         let cached = weeks.map { store.weeks[$0.start] }
         return cached.contains { $0 == nil } ? nil : cached.flatMap { $0! }
     }
-    private var entries: [TimeEntry] { (weekEntries ?? []).filter { $0.timeLogged.map(interval.contains) ?? false } }
+    private var entries: [TimeEntry] { (weekEntries ?? []).filter { $0.timeLogged.map(interval.holds) ?? false } }
     private var total: TimeInterval { TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60) }
     /// Working hours in view; nil on days off. None for a month, as in Time Summary: Teamwork's working hours
     /// don't know holidays or time off, so a month's target overstates it.
@@ -607,7 +607,7 @@ private struct MonthWeeks: View {
         let calendar = Calendar.current
         let interval = Date.IntervalFormatStyle.interval.day()
         return weekIntervals(covering: month).compactMap { $0.intersection(with: month) }.map { span in
-            let inWeek = entries.filter { $0.timeLogged.map { span.start <= $0 && $0 < span.end } ?? false }
+            let inWeek = entries.filter { $0.timeLogged.map(span.holds) ?? false }
             let days = span.start..<calendar.date(byAdding: .day, value: -1, to: span.end)!
             let isCurrent = span.start <= now && now < span.end
             return Week(span: span,

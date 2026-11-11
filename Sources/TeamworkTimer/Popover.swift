@@ -519,7 +519,8 @@ struct TimeSummary: View {
         let calendar = Calendar.current
         let now = Date.now
         let today = calendar.dateInterval(of: .day, for: now)!
-        let yesterday = DateInterval(start: today.start.addingTimeInterval(-86_400), end: today.start)
+        // By the calendar, not 24 hours back: the day after a daylight-saving change is 23 or 25 hours long.
+        let yesterday = DateInterval(start: calendar.date(byAdding: .day, value: -1, to: today.start)!, end: today.start)
         let week = calendar.dateInterval(of: .weekOfYear, for: now)!
         let month = calendar.dateInterval(of: .month, for: now)!
         let tracked = store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
@@ -592,13 +593,13 @@ struct TimeSummary: View {
     /// Logged seconds in an interval; nil until loaded.
     private func logged(in interval: DateInterval) -> TimeInterval? {
         entries.map { list in
-            TimeInterval(list.filter { $0.timeLogged.map(interval.contains) ?? false }.reduce(0) { $0 + $1.minutes } * 60)
+            TimeInterval(list.filter { $0.timeLogged.map(interval.holds) ?? false }.reduce(0) { $0 + $1.minutes } * 60)
         }
     }
 
     private func daysLogged(in interval: DateInterval) -> Int? {
         entries.map { list in
-            Set(list.compactMap { $0.timeLogged }.filter(interval.contains).map { Calendar.current.startOfDay(for: $0) }).count
+            Set(list.compactMap { $0.timeLogged }.filter(interval.holds).map { Calendar.current.startOfDay(for: $0) }).count
         }
     }
 }

@@ -265,6 +265,12 @@ func workingDays(teamwork: [Int: TimeInterval]?, lengthOfDay: TimeInterval?, cus
     return days
 }
 
+extension DateInterval {
+    /// Whether `date` is in the interval, counting its start but not its end: midnight belongs to the day it
+    /// starts. `contains` counts both ends, which put an entry logged at 0:00 on two days, weeks and months.
+    func holds(_ date: Date) -> Bool { start <= date && date < end }
+}
+
 /// The weeks an interval touches: one for a day or a week, four to six for a month.
 func weekIntervals(covering interval: DateInterval, calendar: Calendar = .current) -> [DateInterval] {
     var weeks: [DateInterval] = []
