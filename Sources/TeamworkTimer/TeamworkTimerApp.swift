@@ -73,7 +73,7 @@ struct AppCommands: Commands {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(!store.isSignedIn)
             Divider()
-            Button("Refresh") { Task { await store.refresh() } }
+            Button("Refresh") { Task { await store.refreshAll() } }
                 .keyboardShortcut("r")
                 .disabled(!store.isSignedIn)
         }

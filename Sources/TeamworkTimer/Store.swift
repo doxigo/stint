@@ -378,6 +378,14 @@ final class Store {
         return true
     }
 
+    /// The Refresh command (⌘R): the timers, then every entry list (Today, This Week, This Month, Starred Projects,
+    /// the popover's day), which reload when `logRevision` moves. Not for the poller: that would reload them all
+    /// every 15 seconds.
+    func refreshAll() async {
+        await refresh()
+        logRevision += 1
+    }
+
     func loadStarred() async {
         if let projects = await perform({ try await $0.starredProjects() }) { starred = projects }
     }

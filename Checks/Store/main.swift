@@ -35,6 +35,9 @@ await store.loadWeek(containing: .now) // this week and last
 let thisMonth = Calendar.current.dateInterval(of: .month, for: .now)!
 await store.loadWeeks(covering: thisMonth)
 check(weekIntervals(covering: thisMonth).allSatisfy { store.weeks[$0.start] != nil }, "a month loads every week it touches")
+let revisionBeforeRefresh = store.logRevision
+await store.refreshAll()
+check(store.logRevision == revisionBeforeRefresh + 1, "⌘R reloads the entry lists, not only the timers")
 state.lock.withLock { state.calls = [] }
 check(await store.logAll(drafts) == [1, 2], "second account logs independently")
 check(state.lock.withLock { state.calls.count == 5 }, "two direct logs use four writes and one shared read")

@@ -287,6 +287,10 @@ struct EntriesView: View {
     /// Typed in the toolbar's filter field (This Week and This Month).
     @State private var query = ""
     @FocusState private var filterFocused: Bool
+    /// The weeks in view couldn't be fetched and none were cached: the page offers a retry instead of a spinner.
+    @State private var loadFailed = false
+    /// The day this page last took for today, so it can follow the date past midnight.
+    @State private var today = Calendar.current.startOfDay(for: .now)
 
     private var calendar: Calendar { .current }
     private var interval: DateInterval { calendar.dateInterval(of: span, for: anchor)! }
@@ -390,7 +394,17 @@ struct EntriesView: View {
         }
         .overlay {
             if weekEntries == nil {
-                ProgressView().controlSize(.small)
+                if loadFailed {
+                    ContentUnavailableView {
+                        Label("Couldn't Load", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text("Teamwork couldn't be reached. Check your connection and try again.")
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
+                }
             } else if filtering && shown.isEmpty {
                 ContentUnavailableView.search(text: filter)
             } else if isEmpty {
@@ -432,8 +446,9 @@ struct EntriesView: View {
         // popover), and once the user ID arrives.
         .task(id: "\(weeks[0].start.timeIntervalSince1970)|\(store.logRevision)|\(store.userId ?? 0)") { await load() }
         .refreshable { await load() }
-        // Back from the browser: entries edited on the web show up.
+        // Back from the browser: entries edited on the web show up. And after midnight, "Today" is today again.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            followToday()
             Task { await load() }
         }
     }
@@ -449,7 +464,22 @@ struct EntriesView: View {
 
     /// A day or a week also loads the weeks either side; a month loads its own.
     private func load() async {
+        let asked = weeks.map(\.start)
+        loadFailed = false
         if span == .month { await store.loadWeeks(covering: interval) } else { await store.loadWeek(containing: anchor) }
+        // Still nothing once the load ran its course (not one cut short by stepping to another period): Teamwork
+        // couldn't be reached. Without a user ID nothing was asked; the load runs again when it arrives.
+        if !Task.isCancelled, asked == weeks.map(\.start) { loadFailed = weekEntries == nil && store.userId != nil }
+    }
+
+    /// Left open overnight on the current day, week or month, the page moves on with the date the next time Stint
+    /// comes forward, so "Today" isn't yesterday. A page stepped back to an earlier period stays where it is.
+    // ponytail: on activation only; a window kept frontmost across midnight waits for the next activation.
+    private func followToday() {
+        let now = calendar.startOfDay(for: .now)
+        guard now != today else { return }
+        if interval.holds(today) { anchor = now }
+        today = now
     }
 
     private func step(_ direction: Int) {
