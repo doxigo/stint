@@ -32,6 +32,9 @@ final class Updater {
     private static let latest = URL(string: "https://api.github.com/repos/doxigo/stint/releases/latest")!
     private static let checkEvery: TimeInterval = 6 * 3600
     private static let awayFor: TimeInterval = 5 * 60
+    /// Ephemeral, like the Teamwork client's: GitHub's answers and the downloaded image leave no cache or cookies
+    /// on disk (the privacy page says Stint keeps no network cache).
+    private static let session = URLSession(configuration: .ephemeral)
 
     private(set) var status = Status.idle
     @ObservationIgnored private var release: Release?
@@ -67,7 +70,7 @@ final class Updater {
         do {
             var request = URLRequest(url: Self.latest)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard code == 200 else { throw Failure("GitHub answered \(code); try again later.") }
             let decoder = JSONDecoder()
@@ -93,7 +96,7 @@ final class Updater {
                 throw Failure("Move Stint to your Applications folder to install updates.")
             }
             guard let disk = release.disk else { throw Failure("Version \(release.version) has no disk image.") }
-            let (download, _) = try await URLSession.shared.download(from: disk.browserDownloadUrl)
+            let (download, _) = try await Self.session.download(from: disk.browserDownloadUrl)
             // Next to the installed app, on its volume, so the swap below is a rename.
             let folder = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                                      appropriateFor: app, create: true)
