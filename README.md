@@ -84,6 +84,8 @@ Credentials are stored in your Keychain. Builds signed without an Apple Develope
 | ⌘1–⌘9 | Start a pinned task (popover) |
 | ⌘1–⌘7 | Switch pages (window) |
 | ← → | Previous or next day (popover) |
+| ⌘[ ⌘] | Previous or next day, week or month (window) |
+| ⌘T | Back to today |
 | ⌘0 | Open the main window |
 | ⌘, | Settings |
 | ⌘R | Refresh |
@@ -96,7 +98,7 @@ A global Start/Pause shortcut can be set in Settings.
 You need macOS 26 and either Xcode 26 or the Command Line Tools.
 
 ```bash
-./check.sh    # models, OAuth validation, mocked session/logging/pagination, and release packaging checks
+./check.sh    # models, OAuth validation, mocked session/logging/pagination, the forms, a type-check of every source file, and release packaging checks
 ./bundle.sh   # builds, signs and installs "/Applications/Stint.app"
 ```
 
@@ -131,10 +133,18 @@ Sources/TeamworkTimer/
   TeamworkTimerApp.swift   scenes and menu commands
   Store.swift              app state, polling, caching, logging rules
   TeamworkClient.swift     Teamwork v3 API (timers, time logs, tasks, projects)
+  Models.swift             API models, duration parsing, working-hours and date helpers
   Auth.swift               Keychain, Launchpad OAuth, the sign-in window, stint:// and loopback redirects
+  StatusItem.swift         the menu bar item and its popover window
   Popover.swift            the menu bar popover
   MainWindow.swift         the library window
+  Forms.swift              Log Time, Edit Timer, Edit Entry and Log All
+  MenuBarView.swift        rows and the task picker, shared by the popover and the window
+  WeekChart.swift          This Week's chart
+  SettingsView.swift       Settings and Account
   Chrome.swift, Brand.swift  the shared design system and palette
+  Idle.swift, Reminders.swift, HotKey.swift, Updater.swift
+                           idle prompt, notifications, global shortcut, self-update
 Checks/                    assert checks and anonymised API fixtures
 ```
 

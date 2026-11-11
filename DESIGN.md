@@ -98,13 +98,13 @@ Common patterns from menu bar time trackers that fit this app.
 | Pinned projects first in every picker; "pinned only" filter | Starred projects become useful everywhere |
 | Menu-bar title with live time, configurable (task · project · H:MM, or today's total); colored icon while running | Most-used surface |
 | Menu-bar menu: Stop / Continue latest + 3 recents | Zero-window workflow |
-| **Idle prompt with 4 choices** (keep / discard and continue / discard and stop / log idle as a new entry), sleep- and lock-aware | Fixes the old app's silent pause |
+| **Idle prompt with 3 choices** (keep / remove and continue / remove and stop), sleep-aware | Fixes the old app's silent pause |
 | "Forgot to track" reminder with Start / Continue / Snooze actions, working hours only | The old app doesn't do this |
 | Forgiving duration input: `1:30`, `1.5`, `1,5`, `:45`, `90m`, `1h30` | Fast manual logging |
 | Wrong-day guard ("Start today / Start on Monday") | Prevents misfiled time |
 | Opt-in global shortcuts (unset by default, recorder rejects conflicts) | Avoids stealing system shortcuts |
 | Stop-race guard ("timer changed elsewhere, not stopped") | Needed once timers live on the server |
-| Optimistic UI + Undo toasts | Feels instant |
+| Optimistic UI, with a toast confirming each write | Feels instant (undo wasn't built: destructive actions confirm inline) |
 
 **Skipped (YAGNI for now):** autotracker rules, activity timeline, ML suggestions, Pomodoro, calendar sync, AI chat. Revisit after M3.
 
@@ -119,41 +119,39 @@ Common patterns from menu bar time trackers that fit this app.
 
 ### 3.2 Information architecture
 
-**Menu bar (`MenuBarExtra`, window style)**
+**Menu bar (a hand-made `NSStatusItem` with an `NSPopover`, see `StatusItem.swift`)**
 ```
-[▶ 1:23  Website › Fix nav]   ← status item title (configurable)
-┌───────────────────────────────┐
-│ Running: Website › Fix nav    │  Pause · Stop & Log…
-│ "notes…"         1:23:04      │
-├───────────────────────────────┤
-│ 🔍 Start a timer…  (⌘K)        │  search projects, tasks, pinned
-├───────────────────────────────┤
-│ PINNED          1–9 to start  │
-│ RECENT          last 5 combos │
-├───────────────────────────────┤
-│ Today 5:40 · Open Window ⌘0 · Settings ⌘, │
-└───────────────────────────────┘
+[❚❚ 1:23]                              ← status item: time, task and time, or icon only (Settings)
+┌──────────────────────────────────────┐
+│ Today: Wednesday, Nov 11  5:40 / 8:00 │  slate header; a Today button on other days
+│ ‹ MON  TUE  WED  THU  FRI  SAT  SUN › │  week strip with each day's total; ← → move a day
+├──────────────────────────────────────┤
+│ TIMERS                               │  running first; Start/Pause, Edit and Log on hover
+│ LOGGED                         4:10  │  the day's entries; Start again, Edit on hover
+├──────────────────────────────────────┤
+│ [+] [pin] [chart] Log All   Open Window ▾ │  New Timer ⌘N, Pinned, Time Summary, ⌘0
+└──────────────────────────────────────┘
 ```
 
 **Main window: sidebar sections (stable order, for muscle memory)**
-1. **Timers**: all server timers (running and paused), with a total.
+1. **Timers**: all server timers (running and paused), with a count.
 2. **Today**: time logged today plus timers; day navigation.
-3. **This Week**: 7-day strip with daily totals; "Return to today". A toolbar field filters the entries by task, project or notes (⌘F); filtered, the chart and timers step aside and day headers show the matched time.
+3. **This Week**: a bar chart of each day's logged time against its target (click a day to jump to its entries), then the week's entries by day. A toolbar field filters the entries by task, project or notes (⌘F); filtered, the chart and timers step aside and day headers show the matched time.
 4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off. The same filter field as This Week.
 5. **Pinned**: project + task (+ description, billable) templates.
 6. **Starred Projects**: from Teamwork, alphabetical; each with your time on it this week (a bar against the busiest project, billable purple and non-billable grey as on This Month, and the h:mm); click for its tasks.
 7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime; a header per project (in order of its most pressing task), each row with its task list and due date (Today in purple, late in red and in words).
 
 **Detail:** a list (content layer, no glass).
-**Inspector** (trailing): edit project, task, description, billable, tags, duration, date.
-**Toolbar:** primary *New Timer* (+), search, Refresh. The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
+**Editing:** the Log, Edit Timer and Edit Entry forms, shown as sheets (the popover shows the same views as full screens). An inspector was planned and deferred.
+**Toolbar:** primary *New Timer* (+). Today, This Week and This Month add Previous / Today / Next, and the week and month a filter field; My Tasks its filter; Timers *Log All*. Refresh is a menu command (⌘R). The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
 
 **Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Every Start is the same grey chip (`StartPauseStyle`) that washes purple under the pointer; only Pause is filled. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
 **Windows:** one main window, plus the status item's popover. (A floating mini timer was built, then removed on 2026-10-20: the menu bar covers it.)
 
 ### 3.3 Command map
-Every command is defined once (an `AppCommand` enum) and invoked from menus, toolbar, menu bar and context menus alike.
+Menu commands live in `AppCommands` (`TeamworkTimerApp.swift`); each calls the same `Store` action as its button. The popover repeats the ones it needs as hidden buttons, since it has no menu bar of its own.
 
 Built:
 
@@ -194,13 +192,13 @@ In the popover, pinned items use `⌘1`–`⌘9` because plain digits would land
 **Structure (Swift 6 strict concurrency):**
 - `actor TeamworkClient`: the single HTTP layer with async functions; owns auth headers and rate-limit retries.
 - `@MainActor @Observable final class Store`: timers, pins, selection, plus the command handlers.
-- Views are pure, and live time uses `Text(timerInterval:)` / `TimelineView`. **No app-level ticking timer.**
-- **Undo:** an `UndoManager` covers local edits (pins, inspector fields). Destructive server actions (delete timer, discard) use an optimistic 5 s Undo toast before the request is sent.
+- Views are pure. Live time is plain text on `Store.menuBarNow`, a clock that moves when the running timer's minute ticks over (each second while the menu bar shows seconds), and only while a timer runs. Never `Text(timerInterval:)` or a per-second `TimelineView` for it: in the status item they pinned the app at 100 % CPU (see Menu bar, below). The week chart's once-a-minute `TimelineView` is the one exception.
+- **Undo:** not built. Discarding a timer and deleting an entry confirm inline (`ConfirmRow`); every confirmed write shows a 2 s toast.
 - **Idle:**
-  - `CGEventSource.secondsSinceLastEventType` polled every 15 s, only while a timer runs.
-  - `NSWorkspace` sleep/wake and screen-lock notifications.
-  - The 4-choice prompt then adjusts the timer.
-- **Reminders:** `UserNotifications` with action buttons (Start pinned · Resume last · Snooze 60 m), only inside working hours.
+  - `CGEventSource.secondsSinceLastEventType` polled every 15 s; an idle stretch is only recorded while a timer runs.
+  - `NSWorkspace` sleep and wake notifications.
+  - The prompt (Remove and Continue / Remove and Stop / Keep Time) then adjusts the timer.
+- **Reminders:** `UserNotifications` with action buttons (Resume Last Timer · Snooze 1 Hour; Log All… on the end-of-day one), on weekdays 9:00–17:00.
 - **Launch at login:** `SMAppService.mainApp`.
 
 ### 3.5 Accessibility plan
@@ -218,8 +216,8 @@ In the popover, pinned items use `⌘1`–`⌘9` because plain digits would land
 
 ## 4. Build plan
 
-**Stack:** SwiftUI (AppKit only for `NSPanel` and global hotkeys), SwiftPM, no third-party dependencies.
-**Bundling:** `swift build -c release`, then a script wraps the binary in a `.app` with `Info.plist` and an ad-hoc codesign.
+**Stack:** SwiftUI, with AppKit for the status item and its popover and for the duration and time fields, and Carbon for the global hotkey; SwiftPM, no third-party dependencies.
+**Bundling:** `swift build -c release`, then a script wraps the binary in a `.app` with `Info.plist` and signs it with a local self-signed identity (see Build and run).
 
 | Milestone | Scope | Status |
 |---|---|---|
@@ -239,8 +237,8 @@ Deferred:
 |---|---|
 | Endpoints, params, bodies | Teamwork's official v3 OpenAPI spec: timers incl. `PUT …/timers/{id}.json`, `seconds` backdating, `timelog.Request`, `taskFilter`, `responsiblePartyIds`, `onlyStarredProjects`, `time.json` filters |
 | Response decoding | Self-checks decode real responses from your account, fetched read-only through the Teamwork connector: v3 `me`, timelogs, starred projects, tasks |
-| Elapsed time | Computed from `intervals` (finished runs) plus `now − lastStartedAt`, so it no longer depends on what `duration` counts |
-| Logic | 48 assert checks: elapsed, decoding, duration parser, working hours, URL/OAuth parsing, formats |
+| Elapsed time | Teamwork's `duration` plus the run in progress (`now − lastStartedAt`), as its web app reckons it. Not the sum of `intervals`: a time edit replaces them with one run whose span needn't match |
+| Logic | Plain-assert checks in `Checks/`, run by `./check.sh`: elapsed, decoding, duration parser, working hours, URL/OAuth parsing, formats; the store and the forms against a mocked Teamwork; and a type-check of every source file |
 | UI | A preview build renders the real views with sample data, captured with `screencapture` |
 | Independent code review | 12 findings, all confirmed and fixed. Highlights below. |
 | Not yet exercised live | Requests that change data (start, pause, log, delete): the first real run is yours |
@@ -282,7 +280,7 @@ A MenuBarExtra label must use plain text refreshed by `Store.menuBarNow`, a one-
 | Feature | Where | API |
 |---|---|---|
 | Edit a running/paused timer: move to another task, notes, billable, tracked time (0:00–24:00; a running timer carries on from it) | Timer row Edit icon (on hover), or right-click › Edit Task or Notes… | `PUT /me/timers/{id}.json` (`taskId: null` for project-only; `seconds` replaces the timer's runs with one that long) |
-| Daily target | Popover footer ring "Today 5:40 of 8:00"; Today/Week bar and "x of y" per weekday | Working hours per weekday (v3 `workload.json` include), else `lengthOfDay` from v3 `me` (Mon–Fri); Settings › General can set your own day |
+| Daily target | Popover header "5:40 / 8:00"; Today/Week bar and "x of y" per weekday | Working hours per weekday (v3 `workload.json` include), else `lengthOfDay` from v3 `me` (Mon–Fri); Settings › General can set your own day |
 | Due Today | Popover section between Pinned and Recent | `tasks.json?responsiblePartyIds&taskFilter=today` |
 | Task links | Paste into the search field, or drop on the popover/window to start | `GET /tasks/{id}.json` |
 | End-of-day reminder | Weekdays from 17:00, once, if timers are left; "Log All…" opens the window | local notification |

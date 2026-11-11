@@ -23,4 +23,8 @@ xcrun swiftc -swift-version 6 \
     "$src/MenuBarView.swift" "$src/Forms.swift" Checks/Store/Services.swift Checks/Store/Transport.swift \
     Checks/Forms/main.swift -o "$out/form-checks"
 "$out/form-checks"
+# Every source file, as one module: the checks above compile only the non-UI files, so a slip in the window,
+# the popover, Settings, the status item or the app scene would otherwise wait for bundle.sh or CI.
+xcrun swiftc -swift-version 6 -typecheck "$src"/*.swift
+echo "All sources type-check."
 python3 Checks/bundle.py
