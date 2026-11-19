@@ -48,6 +48,10 @@ final class Store {
     // ponytail: only a fallback, since edits and idle removal set Teamwork's time; the web app shows Teamwork's time
     // until it's logged.
     private(set) var adjustments: [Int: Adjustment] = [:]
+    /// When a timer's entry starts, for a timer given another day than its own in Edit Timer. Teamwork's timers
+    /// carry no date, so it's kept here and applied when the timer is logged. Until then the timer is listed and
+    /// counted on that day (`day(of:)`), not today.
+    private(set) var logStarts: [Int: Date] = [:]
 
     struct Adjustment: Codable, Equatable {
         var seconds: TimeInterval
@@ -263,6 +267,7 @@ final class Store {
         recents = []
         dueToday = []
         adjustments = [:]
+        logStarts = [:]
         projectNames = [:]
         taskNames = [:]
         weeks = [:]
@@ -323,6 +328,7 @@ final class Store {
         pins = load("pins") ?? adoptLegacy("pins") ?? []
         recents = load("recents") ?? adoptLegacy("recents") ?? []
         adjustments = load("adjustments") ?? adoptLegacy("adjustments") ?? [:]
+        logStarts = load("logStarts") ?? [:]
         if let logFile, FileManager.default.fileExists(atPath: logFile.path) {
             do {
                 logAttempts = try JSONDecoder().decode([Int: LogStatus].self, from: Data(contentsOf: logFile))
@@ -413,6 +419,10 @@ final class Store {
             }
             save(adjustments, "adjustments")
         }
+        if logStarts.contains(where: { id, _ in !timers.contains { $0.id == id } }) {
+            logStarts = logStarts.filter { id, _ in timers.contains { $0.id == id } }
+            save(logStarts, "logStarts")
+        }
         return true
     }
 
@@ -434,7 +444,7 @@ final class Store {
         guard let target = target(in: Calendar.current.dateInterval(of: .day, for: now)!),
               let entries = await timeEntries(from: now, to: now) else { return false }
         let logged = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
-        return logged + timers.reduce(0) { $0 + elapsed($1, at: now) } >= target
+        return logged + tracked(in: Calendar.current.dateInterval(of: .day, for: now)!, at: now) >= target
     }
 
     /// Reloads the week containing `date`, then fetches the weeks either side that aren't cached yet
@@ -576,16 +586,35 @@ final class Store {
         max(0, timer.elapsed(at: now) - (adjustments[timer.id]?.seconds ?? 0))
     }
 
+    /// The day a timer is listed and counted on: the one set in Edit Timer, else today (a timer has no date of
+    /// its own until it's logged).
+    func day(of timer: TWTimer, at now: Date = .now) -> Date {
+        Calendar.current.startOfDay(for: logStarts[timer.id] ?? now)
+    }
+
+    /// The timers of a day, week or month: those whose day falls in it.
+    func timers(in interval: DateInterval, at now: Date = .now) -> [TWTimer] {
+        timers.filter { interval.holds(day(of: $0, at: now)) }
+    }
+
+    /// Their time. Without `now`, on the menu bar's clock while one of them runs, so only a view that shows a
+    /// running timer follows the clock.
+    func tracked(in interval: DateInterval, at now: Date? = nil) -> TimeInterval {
+        let mine = timers(in: interval, at: now ?? .now)
+        let now = now ?? (mine.contains(where: \.running) ? menuBarNow : .now)
+        return mine.reduce(0) { $0 + elapsed($1, at: now) }
+    }
+
 
     /// Logs the timer. Teamwork's own "complete" is used when nothing was changed; an edited duration,
     /// removed idle time or "mark task complete" logs the entry directly and then deletes the timer.
-    /// Returns false if Teamwork refused.
-    func log(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, description: String, billable: Bool,
-             markTaskComplete: Bool) async -> Bool {
+    /// `start` moves the entry to another day (and so logs it directly). Returns false if Teamwork refused.
+    func log(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, start: Date? = nil, description: String,
+             billable: Bool, markTaskComplete: Bool) async -> Bool {
         let session = sessionID
         // A receipt means this time was logged earlier and only the leftover timer goes now: no "Logged" toast.
         let fresh = logAttempts[timer.id] == nil
-        let logged = await logTimer(timer, seconds: seconds, durationEdited: durationEdited,
+        let logged = await logTimer(timer, seconds: seconds, durationEdited: durationEdited, start: start,
                                     description: description, billable: billable, markTaskComplete: markTaskComplete)
         guard sessionID == session else { return false }
         if logged { logRevision += 1 }
@@ -637,8 +666,8 @@ final class Store {
 
     func isLogging(_ id: Int) -> Bool { loggingTimers.contains(id) }
 
-    private func logTimer(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, description: String,
-                          billable: Bool, markTaskComplete: Bool) async -> Bool {
+    private func logTimer(_ timer: TWTimer, seconds: TimeInterval, durationEdited: Bool, start: Date? = nil,
+                          description: String, billable: Bool, markTaskComplete: Bool) async -> Bool {
         if completedTimers.contains(timer.id) { return true }
         guard accountReady else { errorMessage = "Account recovery must finish before logging."; return false }
         guard loggingTimers.insert(timer.id).inserted else { return false }
@@ -652,7 +681,8 @@ final class Store {
             errorMessage = "The previous log may have succeeded. Check Teamwork before retrying."
             return false
         }
-        let direct = durationEdited || markTaskComplete || adjustments[timer.id] != nil
+        let start = start ?? logStarts[timer.id]
+        let direct = durationEdited || markTaskComplete || adjustments[timer.id] != nil || start != nil
         if logAttempts[timer.id] != .posted {
             guard seconds.isFinite, seconds >= 60, !direct || seconds <= 86400 else {
                 errorMessage = "Enter a duration between one minute and 24 hours."
@@ -667,7 +697,7 @@ final class Store {
                 do {
                     if direct {
                         try await client.logTime(projectId: timer.projectId!, taskId: timer.taskId, seconds: seconds,
-                                                 start: timer.startedAt ?? .now.addingTimeInterval(-seconds),
+                                                 start: start ?? timer.startedAt ?? .now.addingTimeInterval(-seconds),
                                                  description: description, billable: billable, markTaskComplete: markTaskComplete)
                     } else { try await client.complete(timer.id) }
                 } catch {
@@ -776,6 +806,15 @@ final class Store {
         }
         if ok != nil { showToast(target.map { "Timer moved to \($0.title)" } ?? "Timer updated") }
         return ok != nil
+    }
+
+    /// Sets the day (and start time) the timer's entry lands on when it's logged; nil goes back to the timer's own.
+    func setLogStart(_ start: Date?, for timer: TWTimer) {
+        let moved = start.map { !Calendar.current.isDate($0, inSameDayAs: day(of: timer)) } ?? false
+        logStarts[timer.id] = start
+        save(logStarts, "logStarts")
+        // It leaves the day it was listed on: say where it went.
+        if moved, let start { showToast("Timer set for \(start.dayName)", symbol: "calendar") }
     }
 
     func updateEntry(_ entry: TimeEntry, target: WorkItem? = nil, seconds: TimeInterval, start: Date, description: String,

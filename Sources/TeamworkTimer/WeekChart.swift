@@ -2,8 +2,8 @@ import AppKit
 import Charts
 import SwiftUI
 
-/// This Week's logged time per weekday against each day's target. Today adds its timers (not logged yet) as a
-/// lighter segment. Click a day to jump to its entries; hover for the exact time.
+/// This Week's logged time per weekday against each day's target. A day adds its timers (not logged yet) as a
+/// lighter segment, and the day whose timer is running wears the pink dot. Click a day to jump to its entries; hover for the exact time.
 struct WeekChart: View {
     @Environment(Store.self) private var store
     let week: DateInterval
@@ -39,8 +39,9 @@ struct WeekChart: View {
         let start: Date
         let label: String
         let logged: TimeInterval
-        /// Today's timers, not logged yet.
+        /// The day's timers, not logged yet.
         let tracked: TimeInterval
+        let running: Bool
         let target: TimeInterval?
         let isToday: Bool
         let isFuture: Bool
@@ -63,17 +64,19 @@ struct WeekChart: View {
             logged[calendar.startOfDay(for: entry.timeLogged ?? week.start), default: 0] += TimeInterval(entry.minutes * 60)
         }
         let today = calendar.startOfDay(for: now)
-        let tracked = store.timers.reduce(0) { $0 + store.elapsed($1, at: now) }
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: week.start) }.map { start in
-            Day(start: start, label: start.formatted(.dateTime.weekday(.abbreviated)),
-                logged: logged[start] ?? 0, tracked: start == today ? tracked : 0,
+            let span = calendar.dateInterval(of: .day, for: start)!
+            return Day(start: start, label: start.formatted(.dateTime.weekday(.abbreviated)),
+                logged: logged[start] ?? 0, tracked: store.tracked(in: span, at: now),
+                running: store.timers(in: span, at: now).contains(where: \.running),
                 target: store.target(in: calendar.dateInterval(of: .day, for: start)!),
                 isToday: start == today, isFuture: start > today)
         }
     }
 
     private func chart(_ days: [Day]) -> some View {
-        let shown = days.filter { !$0.isFuture }
+        // A day still to come has no bar until it holds a timer or time logged ahead.
+        let shown = days.filter { !$0.isFuture || $0.total > 0 }
         // Headroom above the tallest bar or target for the met checkmark; the top needn't be a gridline.
         let top = max(1, days.map { max($0.total, $0.target ?? 0) }.max()! / 3600) * 1.15
         let step: Double = top <= 6 ? 2 : top <= 16 ? 4 : 8
@@ -141,7 +144,7 @@ struct WeekChart: View {
                 let day = days.first { $0.label == value.as(String.self) }
                 AxisValueLabel {
                     HStack(spacing: Space.xxs) {
-                        if day?.isToday == true && store.runningTimer != nil { LiveDot() }
+                        if day?.running == true { LiveDot() }
                         Text(value.as(String.self) ?? "")
                             .fontWeight(day?.isToday == true ? .semibold : .regular)
                             .foregroundStyle(day?.isToday == true ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))

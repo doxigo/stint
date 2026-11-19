@@ -21,11 +21,19 @@ struct LogView: View {
     @State private var exactDuration = ""
     /// The same in seconds, for a timer that ran past 24 hours and is logged as it stands (`loggedSeconds`).
     @State private var exactSeconds: TimeInterval = 0
+    /// When the entry starts: the day set in Edit Timer, else the timer's own start (`ownStart`).
+    @State private var start = Date.now
+    @State private var ownStart = Date.now
     @State private var description = ""
     @State private var billable = false
     @State private var markComplete = false
     @State private var saving = false
     private var seconds: TimeInterval? { loggedSeconds(typed: duration, opened: exactDuration, tracked: exactSeconds) }
+    /// Nil on the timer's own day, so an untouched timer still logs with Teamwork's "complete". A day set in Edit
+    /// Timer is always answered, or picking the timer's own day here would log on that one.
+    private var movedStart: Date? {
+        Calendar.current.isDate(start, inSameDayAs: ownStart) && store.logStarts[timer.id] == nil ? nil : start
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +45,8 @@ struct LogView: View {
             FieldRow(label: "Duration", note: durationNote(seconds), noteIsError: !duration.isEmpty && (seconds ?? 0) < 60) {
                 DurationField(text: $duration)
             }
+            RowDivider()
+            DayRow(date: $start)
             RowDivider()
             NotesRow(text: $description)
             RowDivider()
@@ -56,7 +66,8 @@ struct LogView: View {
                     Task {
                         // Unrounded, untouched field → let Teamwork log the live timer time ("complete").
                         if await store.log(timer, seconds: seconds, durationEdited: duration != exactDuration,
-                                           description: description, billable: billable, markTaskComplete: markComplete) { done() }
+                                           start: movedStart, description: description, billable: billable,
+                                           markTaskComplete: markComplete) { done() }
                         saving = false
                     }
                 }
@@ -68,6 +79,8 @@ struct LogView: View {
             let tracked = store.elapsed(timer)
             exactDuration = tracked.hoursMinutes
             exactSeconds = tracked
+            ownStart = timer.startedAt ?? .now.addingTimeInterval(-tracked)
+            start = store.logStarts[timer.id] ?? ownStart
             // Under a minute tracked (e.g. a timer used as a placeholder): ask for the time instead of showing 0:00.
             duration = tracked < 60 ? "" : rounding.apply(tracked, step: roundingStep).hoursMinutes
             description = timer.description
@@ -97,7 +110,6 @@ struct LogWorkView: View {
     let done: () -> Void
     @State private var duration = ""
     @State private var day = Date.now
-    @State private var choosingDay = false
     @State private var description = ""
     @State private var billable = false
     @State private var markComplete = false
@@ -115,14 +127,7 @@ struct LogWorkView: View {
                 DurationField(text: $duration)
             }
             RowDivider()
-            FieldRow(label: "Date") { DayButton(date: day, open: $choosingDay) }
-            if choosingDay {
-                MonthCalendar(date: $day, latest: .now) { choosingDay = false }
-                    .popIn(from: .topTrailing) // the day field is above its trailing corner
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, Space.l)
-                    .padding(.bottom, Space.s)
-            }
+            DayRow(date: $day)
             RowDivider()
             NotesRow(text: $description)
             RowDivider()
@@ -165,6 +170,23 @@ struct LogWorkView: View {
     }
 }
 
+/// The Date row of a timer or log form: the day as a field, the calendar opening under it. Any day, past or future.
+private struct DayRow: View {
+    @Binding var date: Date
+    @State private var choosing = false
+
+    var body: some View {
+        FieldRow(label: "Date") { DayButton(date: date, open: $choosing) }
+        if choosing {
+            MonthCalendar(date: $date) { choosing = false }
+                .popIn(from: .topTrailing) // the day field is above its trailing corner
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, Space.l)
+                .padding(.bottom, Space.s)
+        }
+    }
+}
+
 /// Moves a running or paused timer to another project/task, edits its notes and sets its tracked time
 /// (a running timer carries on from the new time).
 struct EditTimerView: View {
@@ -176,11 +198,16 @@ struct EditTimerView: View {
     @State private var duration = ""
     /// Tracked time when the form opened; the time is only set if the field changes.
     @State private var exactDuration = ""
+    /// When the entry will start once logged: the day set here earlier, else the timer's own start (`ownStart`).
+    @State private var start = Date.now
+    @State private var ownStart = Date.now
     @State private var description = ""
     @State private var billable = false
     @State private var saving = false
     private var seconds: TimeInterval? { parseDuration(duration, allowZero: true) }
     private var timeEdited: Bool { duration != exactDuration }
+    /// Nil on the timer's own day: nothing to keep, and it logs as it always did.
+    private var movedStart: Date? { Calendar.current.isDate(start, inSameDayAs: ownStart) ? nil : start }
 
     var body: some View {
         let current = target ?? store.workItem(for: timer)
@@ -206,6 +233,8 @@ struct EditTimerView: View {
                     DurationField(text: $duration)
                 }
                 RowDivider()
+                DayRow(date: $start)
+                RowDivider()
                 NotesRow(text: $description)
                 RowDivider()
                 FieldRow(label: "Billable") { Toggle("Billable", isOn: $billable).labelsHidden().toggleStyle(.switch) }
@@ -216,7 +245,10 @@ struct EditTimerView: View {
                         saving = true
                         Task {
                             if await store.edit(timer, target: target, description: description, billable: billable,
-                                                seconds: timeEdited ? seconds : nil) { done() }
+                                                seconds: timeEdited ? seconds : nil) {
+                                store.setLogStart(movedStart, for: timer)
+                                done()
+                            }
                             saving = false
                         }
                     }
@@ -228,6 +260,8 @@ struct EditTimerView: View {
         .onAppear {
             exactDuration = store.elapsed(timer).hoursMinutes
             duration = exactDuration
+            ownStart = timer.startedAt ?? .now.addingTimeInterval(-store.elapsed(timer))
+            start = store.logStarts[timer.id] ?? ownStart
             description = timer.description
             billable = timer.billable
         }
@@ -545,7 +579,7 @@ struct DayButton: View {
     var body: some View {
         Button { open.toggle() } label: {
             Label {
-                Text(Self.name(date))
+                Text(date.dayName)
             } icon: {
                 Image(systemName: "calendar").foregroundStyle(Brand.purple)
             }
@@ -555,24 +589,13 @@ struct DayButton: View {
         .accessibilityLabel("Day")
         .accessibilityValue(date.formatted(date: .complete, time: .omitted))
     }
-
-    static func name(_ date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "Today" }
-        if calendar.isDateInYesterday(date) { return "Yesterday" }
-        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-        return calendar.isDate(date, equalTo: .now, toGranularity: .year)
-            ? date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-            : date.formatted(.dateTime.day().month(.abbreviated).year())
-    }
 }
 
 /// A month to pick a day from, drawn like the week strip: the day in a brand-purple circle, today in purple, a faint
 /// circle under the pointer. A click or Today picks and closes; ← → ↑ ↓ move the day while it's open. Picking keeps
-/// `date`'s time of day. Days after `latest` can't be picked.
+/// `date`'s time of day. Any day can be picked, past or future.
 struct MonthCalendar: View {
     @Binding var date: Date
-    var latest: Date?
     let close: () -> Void
     /// The first of the month shown.
     @State private var month = Date.now
@@ -599,7 +622,6 @@ struct MonthCalendar: View {
                 Button { show(1) } label: { chevron("chevron.right") }
                     .help("Next month")
                     .accessibilityLabel("Next month")
-                    .disabled(latest.map { calendar.date(byAdding: .month, value: 1, to: month)! > $0 } ?? false)
             }
             .buttonStyle(PressStyle())
             Grid(horizontalSpacing: Space.xxs, verticalSpacing: 2) {
@@ -613,8 +635,7 @@ struct MonthCalendar: View {
                     GridRow {
                         ForEach(days[week * 7 ..< week * 7 + 7], id: \.self) { day in
                             CalendarDay(day: day, selected: calendar.isDate(day, inSameDayAs: date),
-                                        inMonth: calendar.isDate(day, equalTo: month, toGranularity: .month),
-                                        enabled: allowed(day)) { pick(day) }
+                                        inMonth: calendar.isDate(day, equalTo: month, toGranularity: .month)) { pick(day) }
                         }
                     }
                 }
@@ -634,7 +655,7 @@ struct MonthCalendar: View {
             case .upArrow: -7
             default: 7
             }
-            if let day = calendar.date(byAdding: .day, value: step, to: date), allowed(day) { set(day) }
+            if let day = calendar.date(byAdding: .day, value: step, to: date) { set(day) }
             return .handled
         }
         .onAppear {
@@ -651,10 +672,6 @@ struct MonthCalendar: View {
             .foregroundStyle(.secondary)
             .frame(width: 24, height: 24)
             .contentShape(.rect)
-    }
-
-    private func allowed(_ day: Date) -> Bool {
-        latest.map { calendar.startOfDay(for: day) <= $0 } ?? true
     }
 
     private func show(_ months: Int) {
@@ -678,7 +695,6 @@ private struct CalendarDay: View {
     let day: Date
     let selected: Bool
     let inMonth: Bool
-    let enabled: Bool
     let pick: () -> Void
     @State private var hovering = false
 
@@ -696,9 +712,7 @@ private struct CalendarDay: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.4)
-        .onHover { hovering = $0 && enabled }
+        .onHover { hovering = $0 }
         .animation(hovering ? nil : .easeOut(duration: 0.15), value: hovering)
         .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
         .accessibilityAddTraits(selected ? .isSelected : [])

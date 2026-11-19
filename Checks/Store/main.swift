@@ -225,6 +225,27 @@ check(store.logRevision == revision + 1 && store.recents.first?.sameTarget(as: w
       && store.toast?.message == "Logged 1:15 to Write the spec", "a direct log reloads lists, joins Recents and confirms")
 check(await !store.log(work, seconds: 30, on: .now, description: "", billable: false, markTaskComplete: false)
       && state.lock.withLock { state.posts[7] == 1 }, "under a minute is refused before posting")
+let nextWeek = Calendar.current.date(byAdding: .day, value: 7, to: .now)!
+let postedDay = { state.lock.withLock { (state.body?["timelog"] as? [String: Any]).flatMap { ISO8601DateFormatter().date(from: "\($0["date"] ?? "")T\($0["time"] ?? "")Z") } } }
+check(await store.log(work, seconds: 4500, on: nextWeek, description: "", billable: false, markTaskComplete: false)
+      && postedDay().map { Calendar.current.isDate($0, inSameDayAs: nextWeek) } == true, "time can be logged on a day still to come")
+state.lock.withLock { state.body = nil; state.calls = [] }
+check(await store.log(first, seconds: 600, durationEdited: false, start: nextWeek, description: "", billable: false, markTaskComplete: false)
+      && postedDay().map { Calendar.current.isDate($0, inSameDayAs: nextWeek) } == true
+      && state.lock.withLock { !state.calls.contains { $0.contains("/complete.json") } },
+      "a timer moved to another day posts an entry on that day, not Teamwork's complete")
+// The same from Edit Timer: the day is kept until the timer is logged, then dropped with the timer. Until then
+// the timer is listed and counted on that day, not today.
+let other = store.timers.first { $0.id != first.id }!
+store.setLogStart(nextWeek, for: other)
+let (todaySpan, nextSpan) = (Calendar.current.dateInterval(of: .day, for: .now)!, Calendar.current.dateInterval(of: .day, for: nextWeek)!)
+check(store.timers(in: nextSpan).map(\.id) == [other.id] && !store.timers(in: todaySpan).contains { $0.id == other.id }
+      && store.tracked(in: nextSpan) == store.elapsed(other) && store.toast?.message.hasPrefix("Timer set for ") == true,
+      "a timer given another day leaves today for that day, with its time")
+state.lock.withLock { state.body = nil }
+check(await store.log(other, seconds: 600, durationEdited: false, description: "", billable: false, markTaskComplete: false)
+      && postedDay().map { Calendar.current.isDate($0, inSameDayAs: nextWeek) } == true && store.logStarts.isEmpty,
+      "a day set in Edit Timer is where the timer logs, and is forgotten once it has")
 state.lock.withLock { state.mode = "uncertain" }
 check(await !store.log(work, seconds: 4500, on: yesterday, description: "", billable: false, markTaskComplete: false)
       && store.errorMessage?.contains("may have been logged") == true, "a log Teamwork didn't confirm says it may have gone through")

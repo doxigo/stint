@@ -240,10 +240,11 @@ enum TimerSheet: Identifiable {
 struct TimerList: View {
     let timers: [TWTimer]
     @Binding var sheet: TimerSheet?
+    var showsDay = false
 
     var body: some View {
         ForEach(timers) { timer in
-            TimerRow(timer: timer, onLog: { sheet = .log(timer) }, onEdit: { sheet = .edit(timer) })
+            TimerRow(timer: timer, onLog: { sheet = .log(timer) }, onEdit: { sheet = .edit(timer) }, showsDay: showsDay)
             RowDivider()
         }
     }
@@ -282,7 +283,7 @@ struct TimersView: View {
 
     var body: some View {
         let count = "\(store.timers.count) timer\(store.timers.count == 1 ? "" : "s")"
-        Page { TimerList(timers: shown, sheet: $sheet) }
+        Page { TimerList(timers: shown, sheet: $sheet, showsDay: true) }
             .timerSheet($sheet)
             .overlay {
                 if store.timers.isEmpty {
@@ -339,8 +340,9 @@ struct EntriesView: View {
     /// Working hours in view; nil on days off. None for a month, as in Time Summary: Teamwork's working hours
     /// don't know holidays or time off, so a month's target overstates it.
     private var target: TimeInterval? { span == .month ? nil : store.target(in: interval) }
-    /// No entries and, in the current period, no timers either.
-    private var isEmpty: Bool { entries.isEmpty && !(isCurrent && !store.timers.isEmpty) }
+    /// The period's timers: today's, plus those given a day in it in Edit Timer.
+    private var timers: [TWTimer] { store.timers(in: interval) }
+    private var isEmpty: Bool { entries.isEmpty && timers.isEmpty }
 
     private var filter: String { query.trimmingCharacters(in: .whitespaces) }
     private var filtering: Bool { !filter.isEmpty }
@@ -359,7 +361,7 @@ struct EntriesView: View {
             .map { ($0.key, $0.value.sorted { ($0.timeLogged ?? .distantPast) < ($1.timeLogged ?? .distantPast) }) }
     }
 
-    /// Logged minutes per day for the week strip; its today cell adds the timers on the store's clock (as in the popover).
+    /// Logged minutes per day for the week strip; its cells add their own timers (as in the popover).
     private var dayTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
         for entry in weekEntries ?? [] {
@@ -376,7 +378,7 @@ struct EntriesView: View {
                     WeekChart(week: interval, entries: entries) { day in
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
-                    PeriodSummary(entries: entries, target: target, live: isCurrent, past: interval.end <= .now)
+                    PeriodSummary(entries: entries, target: target, interval: interval)
                 }
             } else if span == .month {
                 if weekEntries != nil && !isEmpty && !filtering {
@@ -385,10 +387,11 @@ struct EntriesView: View {
                     }
                 }
             } else if !filtering, target != nil || !isEmpty {
-                PeriodSummary(entries: entries, target: target, live: isCurrent, past: interval.end <= .now)
+                PeriodSummary(entries: entries, target: target, interval: interval)
             }
-            if isCurrent && !store.timers.isEmpty && !filtering {
-                Section { TimerList(timers: store.timers, sheet: $sheet) } header: { SectionHeader("Timers") }
+            if !timers.isEmpty && !filtering {
+                // A day's page says the day itself; a week or a month names it on the row.
+                Section { TimerList(timers: timers, sheet: $sheet, showsDay: span != .day) } header: { SectionHeader("Timers") }
             }
             ForEach(days, id: \.day) { group in
                 Section {
@@ -410,7 +413,7 @@ struct EntriesView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if span == .day {
                 VStack(spacing: 0) {
-                    WeekStrip(week: week, selected: $anchor, totals: dayTotals, liveToday: true)
+                    WeekStrip(week: week, selected: $anchor, totals: dayTotals)
                     Divider()
                 }
                 .background(.background)
@@ -448,7 +451,7 @@ struct EntriesView: View {
                 Color.clear.navigationSubtitle(
                     "\(shown.count) of \(entries.count) \(entries.count == 1 ? "entry" : "entries") · \(matched.hoursMinutes)")
             } else {
-                EntriesSubtitle(logged: total, target: target, live: span == .day && isCurrent)
+                EntriesSubtitle(logged: total, target: target, day: span == .day ? interval : nil)
             }
         }
         .toolbar {
@@ -527,23 +530,20 @@ private extension View {
     }
 }
 
-/// Today's timers on the store's clock; 0 elsewhere.
-@MainActor private func tracked(_ store: Store, live: Bool) -> TimeInterval {
-    live ? store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) } : 0
-}
-
-/// The window subtitle: logged time against the target and, today, the timers' time and the sum the week strip shows.
+/// The window subtitle: logged time against the target and, on a day with timers, their time and the sum the week
+/// strip shows.
 /// A leaf set from the page's background, so each clock tick re-renders it rather than the page.
 private struct EntriesSubtitle: View {
     @Environment(Store.self) private var store
     let logged: TimeInterval
     let target: TimeInterval?
-    let live: Bool
+    /// The day shown; nil on a week or a month, whose summary row carries the timers.
+    let day: DateInterval?
 
     var body: some View {
         let goal = target.map { " of \($0.hoursMinutes)" } ?? ""
-        let timers = tracked(store, live: live)
-        Color.clear.navigationSubtitle(live && !store.timers.isEmpty
+        let timers = day.map { store.tracked(in: $0) } ?? 0
+        Color.clear.navigationSubtitle(day.map { !store.timers(in: $0).isEmpty } ?? false
             ? "Logged \(logged.hoursMinutes) · Timers \(timers.hoursMinutes) · \((logged + timers).hoursMinutes)\(goal)"
             : "Logged \(logged.hoursMinutes)\(goal)")
     }
@@ -556,15 +556,15 @@ private struct PeriodSummary: View {
     @Environment(Store.self) private var store
     let entries: [TimeEntry]
     let target: TimeInterval?
-    let live: Bool
-    /// The period is over, so a shortfall reads "under", not "left" (as in Time Summary).
-    let past: Bool
+    let interval: DateInterval
 
     var body: some View {
         let logged = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
         let billable = TimeInterval(entries.filter(\.billable).reduce(0) { $0 + $1.minutes } * 60)
-        let timers = tracked(store, live: live)
+        let timers = store.tracked(in: interval)
         let total = logged + timers
+        // The period is over, so a shortfall reads "under", not "left" (as in Time Summary).
+        let past = interval.end <= .now
         VStack(spacing: Space.xs) {
             if let target { TargetBar(logged: logged, nonBillable: logged - billable, timers: timers, target: target) }
             TotalRow(logged: logged, billable: billable, timers: timers, target: target)
@@ -728,7 +728,7 @@ private struct MonthWeeks: View {
                         spoken: days.formatted(interval.month(.wide)),
                         logged: TimeInterval(inWeek.reduce(0) { $0 + $1.minutes } * 60),
                         billable: TimeInterval(inWeek.filter(\.billable).reduce(0) { $0 + $1.minutes } * 60),
-                        timers: tracked(store, live: isCurrent),
+                        timers: store.tracked(in: span),
                         target: store.target(in: span),
                         latest: inWeek.compactMap(\.timeLogged).max().map(calendar.startOfDay),
                         isCurrent: isCurrent, isFuture: span.start > now)

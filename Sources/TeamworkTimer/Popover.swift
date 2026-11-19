@@ -81,7 +81,7 @@ struct MenuBarView: View {
     private var dayScreen: some View {
         VStack(spacing: 0) {
             header
-            WeekStrip(week: week, selected: $day, totals: loggedTotals, liveToday: true)
+            WeekStrip(week: week, selected: $day, totals: loggedTotals)
             Divider()
             // Just below the week strip, over the list: every confirmed write lands back on this screen.
             dayList.overlay { ToastOverlay() }
@@ -111,8 +111,8 @@ struct MenuBarView: View {
         }
     }
 
-    /// Logged minutes per day. Today's running timers are added by the views that show them
-    /// (`TodayTotal`, the strip's today cell): reading the clock here re-rendered the whole popover every second.
+    /// Logged minutes per day. Each day's timers are added by the views that show them
+    /// (`TodayTotal`, the strip's cells): reading the clock here re-rendered the whole popover every second.
     private var loggedTotals: [Date: TimeInterval] {
         var totals: [Date: TimeInterval] = [:]
         for entry in weekEntries ?? [] {
@@ -130,7 +130,8 @@ struct MenuBarView: View {
 
     private var dayList: some View {
         let entries = entriesForDay
-        let timers = isToday ? store.timers : []
+        // Today's, or the ones given this day in Edit Timer.
+        let timers = store.timers(in: calendar.dateInterval(of: .day, for: day)!)
         return ScrollView {
             VStack(spacing: 0) {
                 // Labelled as in the window's Today page: a paused timer and a logged entry otherwise look alike.
@@ -271,13 +272,13 @@ struct MenuBarView: View {
     }
 }
 
-/// Mon–Sun with each day's total; click a day to show it, arrows change week.
+/// Mon–Sun with each day's total (logged time plus that day's timers) and a pink dot on the day whose timer is
+/// running; click a day to show it, arrows change week.
 struct WeekStrip: View {
     let week: DateInterval
     @Binding var selected: Date
+    /// Logged time per day; each cell adds its own timers.
     let totals: [Date: TimeInterval]
-    /// Adds today's running timers on the store's clock (the popover passes logged totals only).
-    var liveToday = false
 
     var body: some View {
         let calendar = Calendar.current
@@ -289,8 +290,7 @@ struct WeekStrip: View {
                 .help("Previous day")
                 .accessibilityLabel("Previous day")
             ForEach(days, id: \.self) { day in
-                DayCell(day: day, selected: $selected, logged: totals[calendar.startOfDay(for: day)] ?? 0,
-                        live: liveToday && calendar.isDateInToday(day))
+                DayCell(day: day, selected: $selected, logged: totals[calendar.startOfDay(for: day)] ?? 0)
             }
             Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 28, height: 48).contentShape(.rect) }
                 .help("Next day")
@@ -306,21 +306,25 @@ struct WeekStrip: View {
     }
 }
 
-/// One day of the strip. Only a live cell reads the store's clock, so a running timer re-renders it alone.
+/// One day of the strip. Only the cell whose timer is running reads the store's clock (`Store.tracked`), so the
+/// clock re-renders it alone.
 private struct DayCell: View {
     @Environment(Store.self) private var store
     let day: Date
     @Binding var selected: Date
     let logged: TimeInterval
-    let live: Bool
     @State private var hovering = false
 
     var body: some View {
         let calendar = Calendar.current
         let isSelected = calendar.isDate(day, inSameDayAs: selected)
         let isToday = calendar.isDateInToday(day)
-        let future = calendar.compare(day, to: .now, toGranularity: .day) == .orderedDescending
-        let total = live ? logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) } : logged
+        let span = calendar.dateInterval(of: .day, for: day)!
+        let timers = store.timers(in: span)
+        let running = timers.contains(where: \.running)
+        let total = logged + store.tracked(in: span)
+        // A day still to come says nothing until it holds a timer or time logged ahead.
+        let future = logged == 0 && timers.isEmpty && calendar.compare(day, to: .now, toGranularity: .day) == .orderedDescending
         Button { selected = calendar.startOfDay(for: day) } label: {
             VStack(spacing: Space.xs) {
                 Text(day.formatted(.dateTime.weekday(.abbreviated)).uppercased())
@@ -339,13 +343,18 @@ private struct DayCell: View {
                     .monospacedDigit()
                     .foregroundStyle(isSelected || isToday ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
                     .opacity(future ? 0 : 1) // nothing to total yet; still laid out, so the strip keeps its height
+                    // The timer row's own mark, on the day that timer counts on. In the gap before the time, as
+                    // there: beside it, the total would step off the day's centre line.
+                    .overlay(alignment: .leading) {
+                        if running { LiveDot().offset(x: -(7 + Space.xxs)) }
+                    }
             }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
         .onHover { hovering = $0 }
         .accessibilityLabel(future ? day.formatted(date: .complete, time: .omitted)
-                                   : "\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)")
+                                   : "\(day.formatted(date: .complete, time: .omitted)), \(total.spoken)\(running ? ", timer running" : "")")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -358,7 +367,7 @@ struct TodayTotal: View {
     let target: TimeInterval
 
     var body: some View {
-        let total = logged + store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
+        let total = logged + store.tracked(in: Calendar.current.dateInterval(of: .day, for: .now)!)
         Text("\(total.hoursMinutes) / \(target.hoursMinutes)")
             .accessibilityLabel("Today, \(total.spoken) of \(target.spoken)")
     }
@@ -523,20 +532,19 @@ struct TimeSummary: View {
         let yesterday = DateInterval(start: calendar.date(byAdding: .day, value: -1, to: today.start)!, end: today.start)
         let week = calendar.dateInterval(of: .weekOfYear, for: now)!
         let month = calendar.dateInterval(of: .month, for: now)!
-        let tracked = store.timers.reduce(0) { $0 + store.elapsed($1, at: store.menuBarNow) }
         VStack(spacing: 0) {
             ScreenHeader("Time Summary", back: back)
             HStack(alignment: .top, spacing: 0) {
-                tile("Today", logged(in: today).map { $0 + tracked }, target: store.target(in: today))
+                tile("Today", logged(in: today).map { $0 + store.tracked(in: today) }, target: store.target(in: today))
                 Divider()
                 tile("Yesterday", logged(in: yesterday), target: store.target(in: yesterday), past: true)
             }
             .fixedSize(horizontal: false, vertical: true)
             Divider()
             HStack(alignment: .top, spacing: 0) {
-                tile("This week", logged(in: week).map { $0 + tracked }, target: store.target(in: week))
+                tile("This week", logged(in: week).map { $0 + store.tracked(in: week) }, target: store.target(in: week))
                 Divider()
-                tile("This month", logged(in: month).map { $0 + tracked }, target: nil,
+                tile("This month", logged(in: month).map { $0 + store.tracked(in: month) }, target: nil,
                      note: daysLogged(in: month).map { "Logged on \($0) day\($0 == 1 ? "" : "s")" })
             }
             .fixedSize(horizontal: false, vertical: true)

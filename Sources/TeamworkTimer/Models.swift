@@ -278,6 +278,19 @@ func workingDays(teamwork: [Int: TimeInterval]?, lengthOfDay: TimeInterval?, cus
     return days
 }
 
+extension Date {
+    /// The day in words: "Today", "Yesterday", "Tomorrow", else "Mon 19 Oct" (with the year in another one).
+    var dayName: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(self) { return "Today" }
+        if calendar.isDateInYesterday(self) { return "Yesterday" }
+        if calendar.isDateInTomorrow(self) { return "Tomorrow" }
+        return calendar.isDate(self, equalTo: .now, toGranularity: .year)
+            ? formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+            : formatted(.dateTime.day().month(.abbreviated).year())
+    }
+}
+
 extension DateInterval {
     /// Whether `date` is in the interval, counting its start but not its end: midnight belongs to the day it
     /// starts. `contains` counts both ends, which put an entry logged at 0:00 on two days, weeks and months.

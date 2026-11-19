@@ -413,6 +413,8 @@ struct TimerRow: View {
     let timer: TWTimer
     let onLog: () -> Void
     var onEdit: (() -> Void)?
+    /// Names the day set in Edit Timer, where the list around the row doesn't already (Timers, a week, a month).
+    var showsDay = false
     @State private var confirmingDiscard = false
     @State private var hovering = false
 
@@ -433,6 +435,7 @@ struct TimerRow: View {
         let title = store.title(of: timer)
         let project = store.subtitle(of: timer)
         let notes = timer.description.isEmpty || timer.description == title ? nil : timer.description
+        let day = showsDay ? store.logStarts[timer.id].map(\.dayName) : nil
         return HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             VStack(alignment: .leading, spacing: Space.xxs) {
                 // Edit and Log share the title's line, beside the time: under Start/Pause they held an empty band
@@ -459,7 +462,25 @@ struct TimerRow: View {
                     .animation(.easeOut(duration: 0.15), value: hovering)
                     .frame(height: 0) // overhang the title's line rather than push the project down
                 }
-                if let project { Text(project).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
+                if project != nil || day != nil {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                        if let project { Text(project).lineLimit(1) }
+                        if let day {
+                            // The form's own calendar glyph: the day was chosen there. Not a Label: its gap
+                            // between glyph and text is as wide as the one to the project.
+                            HStack(alignment: .firstTextBaseline, spacing: Space.xxs) {
+                                Image(systemName: "calendar").imageScale(.small)
+                                Text(day)
+                            }
+                                .font(.callout)
+                                .fixedSize()
+                                .accessibilityElement(children: .combine)
+                                .help("Logs on this day. Change it in Edit.")
+                                .accessibilityLabel("Logs \(day)")
+                        }
+                    }
+                    .foregroundStyle(.rowSecondary(timer.running))
+                }
                 if let notes { Text(notes).font(.callout).foregroundStyle(.rowSecondary(timer.running)).lineLimit(1) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

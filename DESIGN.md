@@ -124,7 +124,7 @@ Common patterns from menu bar time trackers that fit this app.
 [❚❚ 1:23]                              ← status item: time, task and time, or icon only (Settings)
 ┌──────────────────────────────────────┐
 │ Today: Wednesday, Nov 11  5:40 / 8:00 │  slate header; a Today button on other days
-│ ‹ MON  TUE  WED  THU  FRI  SAT  SUN › │  week strip with each day's total; ← → move a day
+│ ‹ MON  TUE  WED  THU  FRI  SAT  SUN › │  week strip with each day's total, a pink dot on the running timer's day; ← → move a day
 ├──────────────────────────────────────┤
 │ TIMERS                               │  running first; Start/Pause, Edit and Log on hover
 │ LOGGED                         4:10  │  the day's entries; Start again, Edit on hover
@@ -291,7 +291,7 @@ All of these are checked visually in the preview build. Task links and the worki
 
 **Edit Entry** follows Harvest's edit form without copying it: the task as a field (project over task; click to change it), notes beside a large duration, then the day, start time, end time and Billable on one line. Open in Teamwork sits in the header.
 
-**Picking a day** (Edit Entry, Log Time): `DayButton` says the day in words ("Today", "Yesterday", "Mon 19 Oct") and opens `MonthCalendar` under it, drawn like the week strip. A click or Today picks and closes; ← → ↑ ↓ move the day while it's open; Log Time stops at today. It replaced the stock date picker, whose "2026-10-21, 09:35" stepper field was hard to read. Inline rather than a popover: a second window over the menu-bar popover takes the focus, and the popover closes when it loses it. The start time is AppKit's date picker without its bezel, so 12- or 24-hour follows the system.
+**Picking a day** (Edit Entry, Edit Timer, Log Time with or without a timer): `DayButton` says the day in words ("Today", "Yesterday", "Mon 19 Oct") and opens `MonthCalendar` under it, drawn like the week strip. A click or Today picks and closes; ← → ↑ ↓ move the day while it's open. Any day can be picked, future ones too (time planned ahead); a timer logged on another day than its own is posted as a time entry, since Teamwork's "complete" takes no date. Teamwork's timers carry no date either, so a day set in Edit Timer is kept on this Mac (`Store.logStarts`) until the timer is logged, by Log, Log All or the end-of-day reminder alike; the web app would log the same timer on its own day. Until it's logged the timer belongs to that day everywhere (`Store.day(of:)`, `timers(in:)`, `tracked(in:)`): the popover and the window list it there and not under today, the day's total in the week strip, the header, Time Summary, the week chart and the month's weeks count its time there, and the pink live dot (strip and chart) sits on that day while it runs. Lists that span several days (Timers, This Week, This Month) name the day on the row. It replaced the stock date picker, whose "2026-10-21, 09:35" stepper field was hard to read. Inline rather than a popover: a second window over the menu-bar popover takes the focus, and the popover closes when it loses it. The start time is AppKit's date picker without its bezel, so 12- or 24-hour follows the system.
 
 **Rounding:** set under Settings › General › Time Logs.
 - **Options:** off (the default), up, down or nearest, in steps of 5, 6, 10, 15, 30 or 60 minutes.
