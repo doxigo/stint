@@ -238,11 +238,11 @@ enum TimerSheet: Identifiable {
 
 /// Timer rows for Timers and Today; the owning list presents the sheet once (see `timerSheet`).
 struct TimerList: View {
-    @Environment(Store.self) private var store
+    let timers: [TWTimer]
     @Binding var sheet: TimerSheet?
 
     var body: some View {
-        ForEach(store.timers) { timer in
+        ForEach(timers) { timer in
             TimerRow(timer: timer, onLog: { sheet = .log(timer) }, onEdit: { sheet = .edit(timer) })
             RowDivider()
         }
@@ -267,19 +267,35 @@ extension View {
 struct TimersView: View {
     @Environment(Store.self) private var store
     @State private var sheet: TimerSheet?
+    /// Typed in the toolbar's filter field.
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
+
+    private var filter: String { query.trimmingCharacters(in: .whitespaces) }
+    /// The timers listed: all of them, or those whose task, project or notes match the filter.
+    private var shown: [TWTimer] {
+        store.timers.filter { timer in
+            matchesFilter(filter, fields: [timer.taskId.flatMap(store.taskName), timer.projectId.map(store.projectName),
+                                           timer.description].compactMap { $0 })
+        }
+    }
 
     var body: some View {
-        Page { TimerList(sheet: $sheet) }
+        let count = "\(store.timers.count) timer\(store.timers.count == 1 ? "" : "s")"
+        Page { TimerList(timers: shown, sheet: $sheet) }
             .timerSheet($sheet)
             .overlay {
                 if store.timers.isEmpty {
                     ContentUnavailableView("No Timers", systemImage: "timer",
                                            description: Text("Start one with ⌘N or from the menu bar, or drop a Teamwork task link here. Timers started on the web show up too."))
+                } else if shown.isEmpty {
+                    ContentUnavailableView.search(text: filter)
                 }
             }
             .glidingRows(store.timers.map(\.id)) // after the overlay, so "No Timers" fades in with the last row out
             .navigationTitle("Timers")
-            .navigationSubtitle(store.timers.isEmpty ? "" : "\(store.timers.count) timer\(store.timers.count == 1 ? "" : "s")")
+            .navigationSubtitle(store.timers.isEmpty ? "" : filter.isEmpty ? count : "\(shown.count) of \(count)")
+            .entryFilter($query, focused: $filterFocused)
             .toolbar {
                 ToolbarItem {
                     Button("Log All…", systemImage: "checkmark.circle") { store.showingLogAll = true }
@@ -299,7 +315,7 @@ struct EntriesView: View {
     @State private var sheet: TimerSheet?
     @State private var editingEntry: TimeEntry?
     @State private var position = ScrollPosition(idType: Date.self)
-    /// Typed in the toolbar's filter field (This Week and This Month).
+    /// Typed in the toolbar's filter field.
     @State private var query = ""
     @FocusState private var filterFocused: Bool
     /// The weeks in view couldn't be fetched and none were cached: the page offers a retry instead of a spinner.
@@ -326,8 +342,7 @@ struct EntriesView: View {
     /// No entries and, in the current period, no timers either.
     private var isEmpty: Bool { entries.isEmpty && !(isCurrent && !store.timers.isEmpty) }
 
-    /// The filter as applied; always empty on Today, which has no field.
-    private var filter: String { span == .day ? "" : query.trimmingCharacters(in: .whitespaces) }
+    private var filter: String { query.trimmingCharacters(in: .whitespaces) }
     private var filtering: Bool { !filter.isEmpty }
     /// The entries listed: all of them, or those whose task, project or notes match the filter.
     private var shown: [TimeEntry] {
@@ -361,6 +376,7 @@ struct EntriesView: View {
                     WeekChart(week: interval, entries: entries) { day in
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
+                    PeriodSummary(entries: entries, target: target, live: isCurrent, past: interval.end <= .now)
                 }
             } else if span == .month {
                 if weekEntries != nil && !isEmpty && !filtering {
@@ -368,13 +384,11 @@ struct EntriesView: View {
                         withAnimation { position.scrollTo(id: day, anchor: .top) }
                     }
                 }
-            } else if let target {
-                DayProgress(logged: total, target: target, live: isCurrent, past: interval.end <= .now)
-                    .padding(.horizontal, Space.l)
-                    .padding(.top, Space.m)
+            } else if !filtering, target != nil || !isEmpty {
+                PeriodSummary(entries: entries, target: target, live: isCurrent, past: interval.end <= .now)
             }
             if isCurrent && !store.timers.isEmpty && !filtering {
-                Section { TimerList(sheet: $sheet) } header: { SectionHeader("Timers") }
+                Section { TimerList(timers: store.timers, sheet: $sheet) } header: { SectionHeader("Timers") }
             }
             ForEach(days, id: \.day) { group in
                 Section {
@@ -426,7 +440,7 @@ struct EntriesView: View {
         // Timers only: entries also change on ⌘[ ⌘] steps, which stay instant.
         .glidingRows(store.timers.map(\.id))
         .navigationTitle(title)
-        .entryFilter($query, focused: $filterFocused, enabled: span != .day)
+        .entryFilter($query, focused: $filterFocused)
         .background {
             if filtering {
                 // "3 of 41 entries · 4:15": how much of the period the filter found.
@@ -502,18 +516,14 @@ struct EntriesView: View {
 }
 
 private extension View {
-    /// The toolbar's filter field on This Week and This Month (Today has none); ⌘F puts the cursor in it and
-    /// Esc clears it. `enabled` never changes for a page, so the branch keeps the view's identity.
-    @ViewBuilder func entryFilter(_ text: Binding<String>, focused: FocusState<Bool>.Binding, enabled: Bool) -> some View {
-        if enabled {
-            searchable(text: text, prompt: "Filter by task, project or notes")
-                .searchFocused(focused)
-                .background {
-                    Button("Filter Entries") { focused.wrappedValue = true }.keyboardShortcut("f").hidden()
-                }
-        } else {
-            self
-        }
+    /// The toolbar's filter field, on every page with a list; ⌘F puts the cursor in it and Esc clears it.
+    func entryFilter(_ text: Binding<String>, focused: FocusState<Bool>.Binding,
+                     prompt: String = "Filter by task, project or notes") -> some View {
+        searchable(text: text, prompt: Text(prompt))
+            .searchFocused(focused)
+            .background {
+                Button("Filter") { focused.wrappedValue = true }.keyboardShortcut("f").hidden()
+            }
     }
 }
 
@@ -539,36 +549,83 @@ private struct EntriesSubtitle: View {
     }
 }
 
-/// Progress toward the day's target: logged time solid, today's timers after it in a lighter tint, with a key
-/// and what's left below. A leaf, like `EntriesSubtitle`.
-private struct DayProgress: View {
+/// Today's and This Week's bottom line: the time against the target as a bar (billable, non-billable, then the
+/// timers) over the same `TotalRow` as This Month. A day or week without a target gets the row alone. A leaf,
+/// like `EntriesSubtitle`.
+private struct PeriodSummary: View {
     @Environment(Store.self) private var store
-    let logged: TimeInterval
-    let target: TimeInterval
+    let entries: [TimeEntry]
+    let target: TimeInterval?
     let live: Bool
-    /// The day is over, so a shortfall reads "under", not "left" (as in Time Summary).
+    /// The period is over, so a shortfall reads "under", not "left" (as in Time Summary).
     let past: Bool
 
     var body: some View {
+        let logged = TimeInterval(entries.reduce(0) { $0 + $1.minutes } * 60)
+        let billable = TimeInterval(entries.filter(\.billable).reduce(0) { $0 + $1.minutes } * 60)
         let timers = tracked(store, live: live)
         let total = logged + timers
-        let rest = total >= target ? "Target met" : "\((target - total).hoursMinutes) \(past ? "under" : "left of") \(target.hoursMinutes)"
         VStack(spacing: Space.xs) {
-            TargetBar(logged: logged, timers: timers, target: target)
-            HStack(spacing: Space.m) {
-                progressKey("Logged", logged, Brand.purpleFill)
-                if live && !store.timers.isEmpty { progressKey("Timers", timers, TargetBar.timersTint) }
-                Spacer()
-                Text(rest).foregroundStyle(total >= target ? AnyShapeStyle(Brand.purple) : AnyShapeStyle(.secondary))
-            }
-            .font(.callout)
-            .monospacedDigit()
+            if let target { TargetBar(logged: logged, nonBillable: logged - billable, timers: timers, target: target) }
+            TotalRow(logged: logged, billable: billable, timers: timers, target: target)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Logged")
-        .accessibilityValue(timers > 0 ? "\(logged.spoken), plus \(timers.spoken) in timers, of \(target.spoken)"
-                                       : "\(logged.spoken) of \(target.spoken)")
+        .padding(.horizontal, Space.l)
+        .padding(.top, Space.m)
+        .help(target.map { total >= $0 ? "Target met" : "\(($0 - total).hoursMinutes) \(past ? "under" : "left of") \($0.hoursMinutes)" } ?? "")
     }
+}
+
+/// A period's bottom line, the same on Today, This Week and This Month: "Total", what it's made of (billable with its
+/// share, non-billable, the timers; these double as the key to the bars' colours) and the sum, against the target
+/// when the period has one. `labels` and `figures` are other rows' to line up with (This Month's weeks).
+private struct TotalRow: View {
+    let logged: TimeInterval
+    let billable: TimeInterval
+    let timers: TimeInterval
+    var target: TimeInterval?
+    var labels: [String] = []
+    var figures: [String] = []
+
+    var body: some View {
+        let total = logged + timers
+        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+            Text("Total").fontWeight(.semibold).sized(to: labels, alignment: .leading)
+            // One line while it fits, else a key per line, so a narrow window doesn't clip it.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Space.m) { keys }
+                VStack(alignment: .leading, spacing: Space.xxs) { keys }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            metMark.opacity(target.map { total >= $0 } ?? false ? 1 : 0)
+            targetFigure(total, of: target).fontWeight(.semibold).sized(to: figures, alignment: .trailing)
+        }
+        .font(.callout)
+        .monospacedDigit()
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var keys: some View {
+        progressKey("Billable", billable, Brand.purpleFill,
+                    detail: logged > 0 ? (billable / logged).formatted(.percent.precision(.fractionLength(0))) : nil)
+        progressKey("Non-billable", logged - billable, TargetBar.nonBillableTint)
+        if timers > 0 { progressKey("Timers", timers, TargetBar.timersTint) }
+    }
+}
+
+/// After a total that reached its target; hidden, it keeps the figures in line.
+private var metMark: some View {
+    Image(systemName: "checkmark")
+        .font(.caption.weight(.bold))
+        .foregroundStyle(Brand.purple)
+        .accessibilityHidden(true)
+}
+
+/// "34:10 / 40:00", or the time alone without a target. Met: all in purple. Otherwise the time stands out from
+/// its target.
+private func targetFigure(_ total: TimeInterval, of target: TimeInterval?) -> Text {
+    guard let target else { return Text(total.hoursMinutes) }
+    if total >= target { return Text("\(total.hoursMinutes) / \(target.hoursMinutes)").foregroundStyle(Brand.purple) }
+    return Text("\(Text(total.hoursMinutes).foregroundStyle(.primary)) / \(target.hoursMinutes)").foregroundStyle(.secondary)
 }
 
 /// Logged time against a target as one capsule: logged solid, timers after it in a lighter tint. With `nonBillable`
@@ -612,7 +669,7 @@ private func progressKey(_ label: String, _ value: TimeInterval, _ color: Color,
 /// This Month's weeks, a row each: logged time against the week's target, billable and non-billable, with the
 /// timers in the current week. Weeks are cut to the month, like the list below, so a week split by the month's
 /// edge counts only its days in the month. Click a week to jump to its latest entries. A total row sums them, its
-/// breakdown doubling as the bars' key. A leaf, like `DayProgress`.
+/// breakdown doubling as the bars' key (`TotalRow`, as on Today and This Week). A leaf, like `PeriodSummary`.
 private struct MonthWeeks: View {
     @Environment(Store.self) private var store
     let month: DateInterval
@@ -652,39 +709,11 @@ private struct MonthWeeks: View {
         VStack(spacing: 0) {
             ForEach(weeks) { week in row(week, labels: labels, figures: figures) }
             RowDivider().padding(.vertical, Space.xxs)
-            HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                Text("Total").fontWeight(.semibold).sized(to: labels, alignment: .leading)
-                // One line while it fits, else a key per line, so a narrow window doesn't clip it.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: Space.m) { keys(logged: logged, billable: billable, timers: timers) }
-                    VStack(alignment: .leading, spacing: Space.xxs) { keys(logged: logged, billable: billable, timers: timers) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                metMark.hidden()
-                Text((logged + timers).hoursMinutes).fontWeight(.semibold).sized(to: figures, alignment: .trailing)
-            }
-            .font(.callout)
-            .monospacedDigit()
-            .padding(.horizontal, Space.l)
-            .padding(.vertical, Space.xxs + 2)
-            .accessibilityElement(children: .combine)
+            TotalRow(logged: logged, billable: billable, timers: timers, labels: labels, figures: figures)
+                .padding(.horizontal, Space.l)
+                .padding(.vertical, Space.xxs + 2)
         }
         .padding(.top, Space.s)
-    }
-
-    /// The total's breakdown: what the bars' purple, grey and light purple stand for, and how much of each.
-    @ViewBuilder private func keys(logged: TimeInterval, billable: TimeInterval, timers: TimeInterval) -> some View {
-        progressKey("Billable", billable, Brand.purpleFill,
-                    detail: logged > 0 ? (billable / logged).formatted(.percent.precision(.fractionLength(0))) : nil)
-        progressKey("Non-billable", logged - billable, TargetBar.nonBillableTint)
-        if timers > 0 { progressKey("Timers", timers, TargetBar.timersTint) }
-    }
-
-    /// After a week that reached its target; hidden, it keeps the figures in line.
-    private var metMark: some View {
-        Image(systemName: "checkmark")
-            .font(.caption.weight(.bold))
-            .foregroundStyle(Brand.purple)
     }
 
     private func weeks(now: Date) -> [Week] {
@@ -732,11 +761,9 @@ private struct MonthWeeks: View {
         .accessibilityValue(spokenValue(week))
     }
 
-    /// Met: all in purple, as Today's "Target met". Otherwise the logged time stands out from its target.
+    /// Blank for a week still to come.
     private func figure(_ week: Week) -> Text {
-        guard !week.isFuture, let target = week.target else { return Text(week.figure) }
-        if week.met { return Text(week.figure).foregroundStyle(Brand.purple) }
-        return Text("\(Text(week.total.hoursMinutes).foregroundStyle(.primary)) / \(target.hoursMinutes)").foregroundStyle(.secondary)
+        week.isFuture ? Text("") : targetFigure(week.total, of: week.target)
     }
 
     private func spokenValue(_ week: Week) -> String {
@@ -762,10 +789,16 @@ private extension View {
 struct PinnedView: View {
     @Environment(Store.self) private var store
     @State private var logging: WorkItem?
+    /// Typed in the toolbar's filter field.
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
 
     var body: some View {
+        let filter = query.trimmingCharacters(in: .whitespaces)
+        // With their places among all the pins, so a drop lands in the right slot while filtered.
+        let shown = Array(store.pins.enumerated()).filter { matchesFilter(filter, fields: $0.element.filterFields) }
         Page {
-            ForEach(Array(store.pins.enumerated()), id: \.element.id) { index, item in
+            ForEach(shown, id: \.element.id) { index, item in
                 WorkRow(item: item, showsPin: false, startButton: true, log: { logging = item }) {
                     Task { await store.start(item) }
                 }
@@ -782,6 +815,8 @@ struct PinnedView: View {
             if store.pins.isEmpty {
                 ContentUnavailableView("No Pins", systemImage: "pin",
                                        description: Text("Right-click a task, project or timer and choose Pin to start it in one click."))
+            } else if shown.isEmpty {
+                ContentUnavailableView.search(text: filter)
             }
         }
         .glidingRows(store.pins.map(\.id)) // a dropped pin glides to its slot, its neighbours make room
@@ -790,7 +825,9 @@ struct PinnedView: View {
                 .frame(width: 440)
         }
         .navigationTitle("Pinned")
-        .navigationSubtitle("Drag to reorder. The first nine start with ⌘1–⌘9 in the menu bar.")
+        .navigationSubtitle(filter.isEmpty ? "Drag to reorder. The first nine start with ⌘1–⌘9 in the menu bar."
+                                           : "\(shown.count) of \(store.pins.count) pin\(store.pins.count == 1 ? "" : "s")")
+        .entryFilter($query, focused: $filterFocused)
     }
 }
 
@@ -799,13 +836,19 @@ struct PinnedView: View {
 /// alphabetical. Projects with nothing this week stay bare.
 struct StarredView: View {
     @Environment(Store.self) private var store
+    /// Typed in the toolbar's filter field.
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
+
     var body: some View {
         @Bindable var store = store
         let week = weekTotals()
         let busiest = week.values.map(\.logged).max() ?? 0
+        let filter = query.trimmingCharacters(in: .whitespaces)
+        let shown = store.starred.filter { matchesFilter(filter, fields: [$0.name]) }
         NavigationStack(path: $store.starredPath) {
             Page {
-                ForEach(store.starred) { project in
+                ForEach(shown) { project in
                     ProjectRow(project: project, open: { store.starredPath.append(project) },
                                start: { Task { await store.start(WorkItem(project: project)) } }) {
                         if let time = week[project.id] {
@@ -826,10 +869,14 @@ struct StarredView: View {
                 if store.starred.isEmpty {
                     ContentUnavailableView("No Starred Projects", systemImage: "star",
                                            description: Text("Star projects in Teamwork and they appear here and first in every picker."))
+                } else if shown.isEmpty {
+                    ContentUnavailableView.search(text: filter)
                 }
             }
             .navigationTitle("Starred Projects")
-            .navigationSubtitle(store.starred.isEmpty ? "" : weekSubtitle(week))
+            .navigationSubtitle(store.starred.isEmpty ? "" : filter.isEmpty ? weekSubtitle(week)
+                : "\(shown.count) of \(store.starred.count) project\(store.starred.count == 1 ? "" : "s")")
+            .entryFilter($query, focused: $filterFocused, prompt: "Filter projects")
             .navigationDestination(for: Project.self) { ProjectTasks(project: $0) }
         }
         .task(id: "\(store.logRevision)|\(store.userId ?? 0)") {
@@ -911,6 +958,15 @@ struct MyTasksView: View {
     @State private var shownFilter: TeamworkClient.TaskFilter?
     /// The last load failed with nothing to show: the page offers a retry rather than "No Tasks".
     @State private var failed = false
+    /// Typed in the toolbar's filter field (`filter` is the Today / Overdue / … picker).
+    @State private var query = ""
+    @FocusState private var filterFocused: Bool
+
+    private var typed: String { query.trimmingCharacters(in: .whitespaces) }
+    /// The tasks listed: all of them, or those whose task, project, task list or notes match what's typed.
+    private var shown: [AssignedTask] {
+        items.filter { matchesFilter(typed, fields: $0.item.filterFields + [$0.list].compactMap { $0 }) }
+    }
 
     private struct ProjectGroup: Identifiable {
         let id: Int
@@ -920,7 +976,7 @@ struct MyTasksView: View {
 
     var body: some View {
         Page {
-            ForEach(Self.byProject(items)) { group in
+            ForEach(Self.byProject(shown)) { group in
                 Section {
                     ForEach(group.tasks) { task in
                         WorkRow(item: task.item, detail: task.list, due: task.due, startButton: true) {
@@ -940,12 +996,15 @@ struct MyTasksView: View {
                 LoadFailed { Task { await load() } }
             } else if items.isEmpty {
                 ContentUnavailableView("No Tasks", systemImage: "checklist", description: Text("Nothing assigned to you here."))
+            } else if shown.isEmpty {
+                ContentUnavailableView.search(text: typed)
             }
         }
         // Switching filter crossfades the list rather than swapping it in one frame.
         .animation(.easeOut(duration: 0.2), value: items.map(\.id))
         .navigationTitle("My Tasks")
-        .navigationSubtitle(subtitle)
+        .navigationSubtitle(typed.isEmpty ? subtitle : "\(shown.count) of \(items.count) task\(items.count == 1 ? "" : "s")")
+        .entryFilter($query, focused: $filterFocused, prompt: "Filter by task, project or list")
         .toolbar {
             ToolbarItem {
                 Picker("Show", selection: $filter) {

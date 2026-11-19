@@ -78,6 +78,8 @@ struct WeekChart: View {
         let top = max(1, days.map { max($0.total, $0.target ?? 0) }.max()! / 3600) * 1.15
         let step: Double = top <= 6 ? 2 : top <= 16 ? 4 : 8
         let hoveredDay = shown.first { $0.start == hovered }
+        /// The tooltip goes after (trailing) the first four columns, before the rest.
+        let after = shown.firstIndex { $0.start == hovered }.map { $0 < 4 } ?? true
         return Chart {
             ForEach(days.filter(\.isToday)) { day in
                 RectangleMark(x: .value("Day", day.label), width: .ratio(0.8))
@@ -123,10 +125,12 @@ struct WeekChart: View {
                 RectangleMark(x: .value("Day", day.label), width: .ratio(0.8))
                     .foregroundStyle(.clear)
                     .accessibilityHidden(true)
-                    .annotation(position: shown.firstIndex { $0.id == day.id }! < 4 ? .trailing : .leading,
+                    .annotation(position: after ? .trailing : .leading,
                                 alignment: .top, spacing: Space.xxs,
                                 overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
-                        tooltip(day)
+                        // Out of the column it describes. Once per hover: the view stays as the pointer
+                        // crosses to other days (measured), so it doesn't pop again for each.
+                        tooltip(day).popIn(from: after ? .leading : .trailing)
                     }
             }
         }

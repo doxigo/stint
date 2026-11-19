@@ -122,6 +122,8 @@ final class Store {
     @ObservationIgnored private var toggling = 0
     @ObservationIgnored private var toggled = 0
     @ObservationIgnored private var pollError: String?
+    /// Every display is asleep (the Mac itself may be awake): see `pollDelay`.
+    @ObservationIgnored private var displaysAsleep = false
     @ObservationIgnored private var starting: Set<String> = []
     @ObservationIgnored private var loggingItems: Set<String> = []
     @ObservationIgnored private var requests: [UUID: () -> Void] = [:]
@@ -161,11 +163,30 @@ final class Store {
             if let data = try Keychain.get("credentials") {
                 activate(try JSONDecoder().decode(Credentials.self, from: data))
                 Task { await loadStarred() }
+                // Not only at sign-in: macOS can forget the permission between builds (see bundle.sh), and a
+                // notification posted without it is dropped silently. Asks nothing once it's been answered.
+                if Reminders.wanted { Task { await Reminders.requestPermission() } }
             }
         } catch { errorMessage = error.localizedDescription }
+        let workspace = NSWorkspace.shared.notificationCenter
         Task {
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+            for await _ in workspace.notifications(named: NSWorkspace.didWakeNotification) {
                 await refresh()
+            }
+        }
+        // With the displays asleep nobody reads the clock: it stops, and the poll slows (`pollDelay`).
+        Task {
+            for await _ in workspace.notifications(named: NSWorkspace.screensDidSleepNotification) {
+                displaysAsleep = true
+                updateTicker()
+            }
+        }
+        Task {
+            for await _ in workspace.notifications(named: NSWorkspace.screensDidWakeNotification) {
+                displaysAsleep = false
+                menuBarNow = .now
+                updateTicker()
+                if client != nil { startPolling() } // now, not when the slow poll next comes round
             }
         }
     }
@@ -260,9 +281,9 @@ final class Store {
         updateTicker()
     }
 
-    /// Starts the menu bar clock while a timer runs; stops it otherwise.
+    /// Starts the menu bar clock while a timer runs with a display awake; stops it otherwise.
     func updateTicker() {
-        guard runningTimer != nil else {
+        guard runningTimer != nil, !displaysAsleep else {
             ticker?.cancel()
             ticker = nil
             return
@@ -292,7 +313,7 @@ final class Store {
         activate(credentials)
         identify(me)
         await loadStarred()
-        if Reminders.longTimerAlert { await Reminders.requestPermission() }
+        if Reminders.wanted { await Reminders.requestPermission() }
     }
 
     private func identify(_ me: (id: Int, name: String, dayLength: TimeInterval?, hours: [Int: TimeInterval]?, web: URL?)) {
@@ -326,17 +347,34 @@ final class Store {
         }
         site = credentials.site
         webSite = credentials.site
+        startPolling()
+    }
+
+    /// Polls from now on, in place of any poll already going.
+    private func startPolling() {
         guard polls else { return }
+        poller?.cancel()
         poller = Task { [weak self] in
+            var delay = Self.pollSeconds
             while !Task.isCancelled {
                 await self?.refresh()
                 // This week is ready before the popover first opens (retried until it loads).
                 if self?.weeks.isEmpty == true { await self?.loadWeek(containing: .now) }
                 guard !Task.isCancelled else { return }
                 self?.reminders.check()
-                try? await Task.sleep(for: .seconds(Self.pollSeconds))
+                delay = Self.pollDelay(after: delay, failed: self?.pollError != nil, asleep: self?.displaysAsleep == true)
+                try? await Task.sleep(for: .seconds(delay))
             }
         }
+    }
+
+    /// Seconds until the next poll: 15, or twice the last wait, up to a minute, after a poll that failed (offline, a
+    /// sign-in Teamwork rejects), so a dead connection isn't asked four times a minute. With the displays asleep,
+    /// 5 minutes, enough for the reminders; waking a display polls at once (`screensDidWakeNotification`).
+    // ponytail: a rejected sign-in (401) is still asked once a minute; stop for good if Teamwork ever minds.
+    static func pollDelay(after last: TimeInterval, failed: Bool, asleep: Bool) -> TimeInterval {
+        if asleep { return 300 }
+        return failed ? min(max(last, pollSeconds) * 2, 60) : pollSeconds
     }
 
     // MARK: Sync
@@ -759,6 +797,12 @@ final class Store {
     /// The task a pasted or dropped Teamwork link points to.
     func item(fromLink text: String) async -> WorkItem? {
         guard let id = taskID(fromLink: text) else { return nil }
+        // A full link to another site names that site's task: here its number is no task, or a different one.
+        if let host = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))?.host()?.lowercased(),
+           ![site, webSite].contains(where: { $0?.host()?.lowercased() == host }) {
+            errorMessage = "That link is to \(host), not your Teamwork site."
+            return nil
+        }
         return await perform { try await $0.task(id) } ?? nil
     }
 

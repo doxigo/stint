@@ -32,7 +32,7 @@ final class Updater {
     }
 
     static let shared = Updater()
-    static var automatic: Bool { UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true }
+    static var automatic: Bool { UserDefaults.standard.bool(forKey: "autoUpdate") } // on by default: `registerSettingDefaults`
     static let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     private static let latest = URL(string: "https://api.github.com/repos/doxigo/stint/releases/latest")!
     private static let checkEvery: TimeInterval = 6 * 3600
@@ -49,6 +49,11 @@ final class Updater {
     /// "0.5.10" is newer than "0.5.9".
     nonisolated static func isNewer(_ version: String, than other: String) -> Bool {
         version.compare(other, options: .numeric) == .orderedDescending
+    }
+
+    /// Whether an asset's download is GitHub's own, over HTTPS: the only place an update is fetched from.
+    nonisolated static func isFromGitHub(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host() == "github.com"
     }
 
     func start(_ store: Store) {
@@ -101,7 +106,13 @@ final class Updater {
                 throw Failure("Move Stint to your Applications folder to install updates.")
             }
             guard let disk = release.archive else { throw Failure("Version \(release.version) has nothing to install from.") }
-            let (download, _) = try await Self.session.download(from: disk.browserDownloadUrl)
+            guard Self.isFromGitHub(disk.browserDownloadUrl) else {
+                throw Failure("Version \(release.version)'s download isn't on GitHub, so it wasn't installed.")
+            }
+            let (download, response) = try await Self.session.download(from: disk.browserDownloadUrl)
+            // An error page would only fail the checksum below, and read as a damaged download.
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else { throw Failure("GitHub answered \(code) for the download; Stint will try again later.") }
             // Next to the installed app, on its volume, so the swap below is a rename.
             let folder = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
                                                      appropriateFor: app, create: true)
@@ -137,10 +148,10 @@ final class Updater {
 
     /// Checks the image, copies the app out of it and checks the app. Returns the copy.
     nonisolated private static func stage(_ image: URL, digest: String?, in folder: URL, newerThan current: String) throws -> URL {
-        if let digest {
-            let hash = SHA256.hash(data: try Data(contentsOf: image)).map { String(format: "%02x", $0) }.joined()
-            guard digest == "sha256:\(hash)" else { throw Failure("The download was damaged; Stint will try again later.") }
-        }
+        // Required: GitHub gives every release asset one, so a release without it isn't installed unchecked.
+        guard let digest else { throw Failure("GitHub gave no checksum for the update, so it wasn't installed.") }
+        let hash = SHA256.hash(data: try Data(contentsOf: image)).map { String(format: "%02x", $0) }.joined()
+        guard digest == "sha256:\(hash)" else { throw Failure("The download was damaged; Stint will try again later.") }
         let staged: URL
         if image.pathExtension == "zip" {
             let unpacked = folder.appending(path: "unpacked")

@@ -226,6 +226,9 @@ struct WorkItem: Codable, Hashable, Identifiable, Sendable {
 
 extension WorkItem {
     init(project: Project) { self.init(projectId: project.id, projectName: project.name) }
+
+    /// What a typed filter searches (`matchesFilter`): task, project and notes.
+    var filterFields: [String] { [taskName, projectName, description].compactMap { $0 } }
 }
 
 struct Credentials: Codable, Sendable {
@@ -240,6 +243,16 @@ struct Credentials: Codable, Sendable {
         case .oauth: "Bearer \(secret)"
         }
     }
+}
+
+/// The settings that don't start at off or zero, stated once. Run before anything reads a setting (the app's
+/// `init`): every reader then gets these until the user changes one, `@AppStorage` included, whose own default
+/// is never used after this.
+func registerSettingDefaults() {
+    UserDefaults.standard.register(defaults: [
+        "idleEnabled": true, "idleMinutes": 10, "menuBarHighlight": true,
+        "longTimerAlert": true, "endOfDayNudge": true, "autoUpdate": true, "roundingStep": 15,
+    ])
 }
 
 /// "acme.teamwork.com" or a pasted page URL → `https://acme.teamwork.com/`.

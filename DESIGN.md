@@ -135,16 +135,16 @@ Common patterns from menu bar time trackers that fit this app.
 
 **Main window: sidebar sections (stable order, for muscle memory)**
 1. **Timers**: all server timers (running and paused), with a count.
-2. **Today**: time logged today plus timers; day navigation.
-3. **This Week**: a bar chart of each day's logged time against its target (click a day to jump to its entries), then the week's entries by day. A toolbar field filters the entries by task, project or notes (⌘F); filtered, the chart and timers step aside and day headers show the matched time.
-4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), a Total row with billable (and its share), non-billable and timers, then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off. The same filter field as This Week.
-5. **Pinned**: project + task (+ description, billable) templates.
+2. **Today**: time logged today plus timers; day navigation. On top, a bar of the day's time against its target (billable purple, non-billable grey, timers light purple) over a Total row: billable (and its share), non-billable, timers, and the sum against the target. Filtered, the summary and timers step aside.
+3. **This Week**: a bar chart of each day's logged time against its target (click a day to jump to its entries), the same bar and Total row as Today for the week, then the week's entries by day. A toolbar field filters the entries by task, project or notes (⌘F); filtered, the chart and timers step aside and day headers show the matched time.
+4. **This Month**: a row per week (a bar of logged time against the week's target, billable purple, non-billable grey and timers light purple, weeks cut to the month; click to jump to it), the same Total row as Today and This Week (no bar: the weeks are the bars), then the month's entries by day. No target for the month as a whole: working hours don't know holidays or time off. The same filter field as This Week.
+5. **Pinned**: project + task (+ description, billable) templates. Its filter keeps drag-to-reorder working on the matches.
 6. **Starred Projects**: from Teamwork, alphabetical; each with your time on it this week (a bar against the busiest project, billable purple and non-billable grey as on This Month, and the h:mm); click for its tasks.
 7. **My Tasks**: assigned to me, filtered by Today / Overdue / Upcoming / Anytime; a header per project (in order of its most pressing task), each row with its task list and due date (Today in purple, late in red and in words).
 
 **Detail:** a list (content layer, no glass).
 **Editing:** the Log, Edit Timer and Edit Entry forms, shown as sheets (the popover shows the same views as full screens). An inspector was planned and deferred.
-**Toolbar:** primary *New Timer* (+). Today, This Week and This Month add Previous / Today / Next, and the week and month a filter field; My Tasks its filter; Timers *Log All*. Refresh is a menu command (⌘R). The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
+**Toolbar:** primary *New Timer* (+). Every page has a filter field (⌘F) that narrows its list as you type. Today, This Week and This Month add Previous / Today / Next; My Tasks its Today / Overdue / Upcoming / Anytime picker; Timers *Log All*. Refresh is a menu command (⌘R). The sidebar groups pages under Time (Timers, Today, This Week, This Month) and Work (Pinned, Starred Projects, My Tasks); its footer holds the account (avatar, name, site → Account page) and a Settings gear (⌘,). There is no separate Settings window.
 
 **Window pages use the popover's parts** (`Page` in `MainWindow.swift`): full-width rows, `RowDivider`, pinned `SectionHeader`s, purple hover wash. Every Start is the same grey chip (`StartPauseStyle`) that washes purple under the pointer; only Pause is filled. Starred Projects drills into a project page (Project / Tasks, toolbar search) like the popover's picker. The sidebar draws its own purple selection, because `List(selection:)` paints the system accent and the app can't set an accent color without an Xcode-compiled asset catalog.
 
@@ -183,7 +183,7 @@ In the popover, pinned items use `⌘1`–`⌘9` because plain digits would land
 |---|---|---|
 | API token, site URL | Keychain | per account; replaces the plaintext NeDB storage |
 | Timers | Teamwork v3 `me/timers` | elapsed = `duration` + (now − last start) when running; **no per-second writes** |
-| Timers started elsewhere (web, mobile) | polled every 15 s, plus on popover open and on wake | show in the menu bar with live time |
+| Timers started elsewhere (web, mobile) | polled every 15 s (up to a minute apart after a failed poll, every 5 min with the displays asleep), plus on popover open and when the Mac or a display wakes | show in the menu bar with live time |
 | Pinned items, recents | `UserDefaults` (Codable `WorkItem`) | `{projectId, projectName, taskId?, taskName?, description, billable}`; local because Teamwork has no "pin" concept |
 | Starred projects | Teamwork (`projects/starred`, `PUT projects/{id}/star`) | old app used `time/projects.json?starredOnly=true` |
 | Settings | `@AppStorage` | idle minutes, reminders, menu-bar title parts, Dock icon, … |

@@ -37,8 +37,8 @@ import SwiftUI
         popover.behavior = .applicationDefined
         // Content runs under the arrow, so the header's slate fills it and the arrow reads as part of the bar.
         popover.hasFullSizeContent = true
-        // Instant, like a menu. While the close animation runs the popover still counts as shown, so
-        // a quick second click on the item was lost (measured).
+        // Closes and resizes at once, like a menu. While the close animation runs the popover still counts as
+        // shown, so a quick second click on the item was lost (measured). Opening has its own motion (`popIn`).
         popover.animates = false
         popover.delegate = self
         popover.contentViewController = content
@@ -55,7 +55,23 @@ import SwiftUI
                 popover.performClose(nil)
             }
         }
+        // The item changes width when a timer starts or its text grows, and macOS then moves it. The popover
+        // doesn't follow by itself, which left its arrow beside the item.
+        item.button?.postsFrameChangedNotifications = true
+        for name in [NSView.frameDidChangeNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let sender = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                MainActor.assumeIsolated { self?.reanchor(movedBy: sender) }
+            }
+        }
         track()
+    }
+
+    /// Points the open popover at the status item again, once the item or its window (`sender`) has moved.
+    private func reanchor(movedBy sender: ObjectIdentifier?) {
+        guard popover.isShown, let button = item.button,
+              sender == ObjectIdentifier(button) || sender == button.window.map(ObjectIdentifier.init) else { return }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) // shown already: only moves it
     }
 
     /// Redraws whenever anything it read from the store changes (the store's clock ticks each second
@@ -76,7 +92,7 @@ import SwiftUI
         let state = timer.running ? "Running" : "Paused"
         // Shape, not just colour, tells running from paused: pause while running, as in Harvest.
         let glyph = Self.symbol(timer.running ? "pause.fill" : "play.fill")
-        let highlight = defaults.object(forKey: "menuBarHighlight") as? Bool ?? true
+        let highlight = defaults.bool(forKey: "menuBarHighlight") // on by default: `registerSettingDefaults`
         guard style != .icon else {
             let square = MenuBarBadge.image(running: timer.running, highlight: highlight, text: "")
             return show(square ?? glyph, title: "", label: state, in: button)
@@ -112,6 +128,7 @@ import SwiftUI
         }
         NotificationCenter.default.post(name: Self.willOpen, object: nil)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popIn(from: button)
         popover.contentViewController?.view.window?.makeKey() // takes typing even while another app is active
         // Active before the first click lands. macOS declines plain activate() here (the item's click
         // reaches the app through MenuBarAgent), so the popover's first click activated the app instead,
@@ -120,6 +137,36 @@ import SwiftUI
         NSApp.activate(ignoringOtherApps: true)
         button.highlight(true)
         watchOutside()
+    }
+
+    /// The popover grows out of the status item: a short fade, and a touch of scale from the arrow's tip (the fade
+    /// alone under Reduce Motion). Ours rather than `animates`, which also animates the close and every resize
+    /// (see init). The window is there from the first frame, so no click is lost to the motion.
+    private func popIn(from button: NSStatusBarButton) {
+        guard let window = content.view.window else { return }
+        let duration = 0.15, scale = 0.96
+        window.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().alphaValue = 1
+        }
+        // The window's top view, so the popover's own background and arrow scale with the content.
+        var frame: NSView = content.view
+        while let parent = frame.superview { frame = parent }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let layer = frame.layer,
+              let bar = button.window else { return }
+        let tipX = bar.convertToScreen(button.convert(button.bounds, to: nil)).midX - window.frame.minX
+        let tip = frame.convert(NSPoint(x: tipX, y: window.frame.height), from: nil)
+        // A layer scales about its anchor point; the shift keeps the arrow's tip in place instead.
+        let anchor = CGPoint(x: layer.bounds.minX + layer.anchorPoint.x * layer.bounds.width,
+                             y: layer.bounds.minY + layer.anchorPoint.y * layer.bounds.height)
+        let grow = CABasicAnimation(keyPath: "transform")
+        grow.fromValue = CATransform3DMakeAffineTransform(CGAffineTransform(
+            a: scale, b: 0, c: 0, d: scale, tx: (1 - scale) * (tip.x - anchor.x), ty: (1 - scale) * (tip.y - anchor.y)))
+        grow.duration = duration
+        grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(grow, forKey: "popIn") // presentation only: the layer itself stays as AppKit set it
     }
 
     /// While open: a click anywhere outside closes it (other apps, the desktop, other menu bar items, this

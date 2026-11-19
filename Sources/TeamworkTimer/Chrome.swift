@@ -210,6 +210,28 @@ private struct GlidingRows<IDs: Equatable>: ViewModifier {
     }
 }
 
+extension View {
+    /// For what a control opens beside itself (a day field's calendar, a bar's tooltip): it grows out of that
+    /// control, a touch small and faded, rather than from its own middle. `anchor` is the corner nearest the
+    /// control. A plain fade under Reduce Motion.
+    /// ponytail: entrance only. The popover resizes in one frame (StatusItem), so an exit would play over the
+    /// rows that already moved up; add one if these ever open in a surface that resizes with them.
+    func popIn(from anchor: UnitPoint) -> some View { modifier(PopIn(anchor: anchor)) }
+}
+
+private struct PopIn: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let anchor: UnitPoint
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown || reduceMotion ? 1 : 0.94, anchor: anchor)
+            .opacity(shown ? 1 : 0)
+            .onAppear { withAnimation(.easeOut(duration: 0.15)) { shown = true } }
+    }
+}
+
 /// Confirms an action in place of the row it affects. Inline rather than a dialog: dialogs
 /// attached to the menu-bar window can close it and lose the action. The row's title stays visible.
 struct ConfirmRow: View {

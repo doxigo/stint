@@ -39,7 +39,7 @@ enum LoopbackServer {
 }
 @MainActor final class Reminders {
     weak var store: Store?
-    static var longTimerAlert: Bool { false }
+    static var wanted: Bool { false }
     static func requestPermission() async {}
     func check() {}
     func reset() {}

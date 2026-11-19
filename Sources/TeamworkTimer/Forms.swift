@@ -118,6 +118,7 @@ struct LogWorkView: View {
             FieldRow(label: "Date") { DayButton(date: day, open: $choosingDay) }
             if choosingDay {
                 MonthCalendar(date: $day, latest: .now) { choosingDay = false }
+                    .popIn(from: .topTrailing) // the day field is above its trailing corner
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.horizontal, Space.l)
                     .padding(.bottom, Space.s)
@@ -508,6 +509,7 @@ struct EditEntryView: View {
                 }
                 if choosingDay {
                     MonthCalendar(date: $start) { choosingDay = false }
+                        .popIn(from: .topLeading) // the day field is above its leading corner
                 }
             }
             .padding(.horizontal, Space.l)

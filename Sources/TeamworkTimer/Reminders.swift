@@ -6,8 +6,11 @@ import UserNotifications
 @MainActor
 final class Reminders: NSObject, UNUserNotificationCenterDelegate {
     static var remindersEnabled: Bool { UserDefaults.standard.bool(forKey: "remindersEnabled") }
-    static var longTimerAlert: Bool { UserDefaults.standard.object(forKey: "longTimerAlert") as? Bool ?? true }
-    static var endOfDayNudge: Bool { UserDefaults.standard.object(forKey: "endOfDayNudge") as? Bool ?? true }
+    // Both on by default: `registerSettingDefaults`.
+    static var longTimerAlert: Bool { UserDefaults.standard.bool(forKey: "longTimerAlert") }
+    static var endOfDayNudge: Bool { UserDefaults.standard.bool(forKey: "endOfDayNudge") }
+    /// Any notification is switched on, so Stint needs macOS's permission to post it.
+    static var wanted: Bool { remindersEnabled || longTimerAlert || endOfDayNudge }
     static let interval: TimeInterval = 30 * 60
     static let longTimer: TimeInterval = 8 * 3600
 

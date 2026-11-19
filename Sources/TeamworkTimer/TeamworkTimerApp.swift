@@ -6,6 +6,7 @@ struct TeamworkTimerApp: App {
     @State private var store: Store
 
     init() {
+        registerSettingDefaults()
         let store = Store()
         _store = State(initialValue: store)
         HotKey.apply(HotKey.saved) { Task { await store.pauseOrResume() } }

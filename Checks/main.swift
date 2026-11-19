@@ -288,6 +288,9 @@ let asset = { (name: String) in Updater.Release.Asset(name: name, browserDownloa
 check(Updater.Release(tagName: "v1", assets: [asset("Stint.dmg"), asset("Stint.zip")]).archive?.name == "Stint.zip"
       && Updater.Release(tagName: "v1", assets: [asset("Stint.dmg")]).archive?.name == "Stint.dmg"
       && Updater.Release(tagName: "v1", assets: []).archive == nil, "an update prefers the zip, else the disk image")
+check(Updater.isFromGitHub(URL(string: "https://github.com/doxigo/stint/releases/download/v1/Stint.zip")!)
+      && !Updater.isFromGitHub(URL(string: "http://github.com/doxigo/stint/releases/download/v1/Stint.zip")!)
+      && !Updater.isFromGitHub(URL(string: "https://github.com.example.net/Stint.zip")!), "an update downloads from GitHub over HTTPS only")
 // The This Week / This Month filter: every word, in any field, in any order, ignoring case and accents.
 let filterFields = ["Fix nav", "Website", "Café menu review"]
 check(matchesFilter("", fields: filterFields) && matchesFilter("   ", fields: filterFields), "an empty filter matches everything")

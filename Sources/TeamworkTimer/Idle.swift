@@ -5,8 +5,9 @@ import CoreGraphics
 /// The old app paused silently and still counted the time before it noticed.
 @MainActor
 final class IdleMonitor {
-    static var enabled: Bool { UserDefaults.standard.object(forKey: "idleEnabled") as? Bool ?? true }
-    static var threshold: TimeInterval { TimeInterval(UserDefaults.standard.object(forKey: "idleMinutes") as? Int ?? 10) * 60 }
+    // On, after 10 minutes, by default: `registerSettingDefaults`.
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "idleEnabled") }
+    static var threshold: TimeInterval { TimeInterval(UserDefaults.standard.integer(forKey: "idleMinutes")) * 60 }
     static let anyInput = CGEventType(rawValue: ~0)!
 
     private weak var store: Store?

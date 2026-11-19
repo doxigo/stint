@@ -16,6 +16,18 @@ let store = Store(defaults: defaults, logDirectory: directory, polls: false)
 try await store.signIn(site: "a.teamwork.com", token: "placeholder")
 await store.refresh()
 check(store.webURL(projectId: 1, taskId: 7)?.absoluteString == "https://tw.a.example/app/tasks/7", "links open on the account's own domain")
+state.lock.withLock { state.calls = [] }
+let foreign = await store.item(fromLink: "https://other.teamwork.com/app/tasks/7")
+let asked = state.lock.withLock { state.calls.count }
+check(foreign == nil && asked == 0 && store.errorMessage?.contains("other.teamwork.com") == true,
+      "a task link to another site isn't looked up on this one")
+for link in ["https://TW.a.example/app/tasks/7", "https://a.teamwork.com/#/tasks/7", "tasks/7"] { _ = await store.item(fromLink: link) }
+check(state.lock.withLock { state.calls.filter { $0.contains("/tasks/7.json") }.count == 3 },
+      "a task link to this site, by either address or none, is looked up")
+store.errorMessage = nil
+check(Store.pollDelay(after: 15, failed: false, asleep: false) == 15 && Store.pollDelay(after: 15, failed: true, asleep: false) == 30
+      && Store.pollDelay(after: 60, failed: true, asleep: false) == 60 && Store.pollDelay(after: 60, failed: false, asleep: false) == 15
+      && Store.pollDelay(after: 15, failed: true, asleep: true) == 300, "a failed poll waits longer, up to a minute; displays asleep, five")
 let first = store.timers.first { $0.id == 1 }!
 let second = store.timers.first { $0.id == 2 }!
 let drafts = [(timer: first, seconds: 900.0, durationEdited: true, billable: false), (timer: second, seconds: 900.0, durationEdited: true, billable: false)]
